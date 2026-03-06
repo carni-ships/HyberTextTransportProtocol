@@ -50,6 +50,55 @@ cd packages/browser
 swift build -c release
 ```
 
+## Claude MCP
+
+HyberText ships a hosted MCP server that gives Claude the ability to fetch and read on-chain websites directly.
+
+**Hosted endpoint (no setup required):**
+```
+https://hybertext-mcp.carnation-903.workers.dev/mcp
+```
+
+**Connect to Claude Code** — add to `~/.claude/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "hybertext": {
+      "type": "url",
+      "url": "https://hybertext-mcp.carnation-903.workers.dev/mcp"
+    }
+  }
+}
+```
+
+**Connect to Claude Desktop** — add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "hybertext": {
+      "type": "url",
+      "url": "https://hybertext-mcp.carnation-903.workers.dev/mcp"
+    }
+  }
+}
+```
+
+Once connected, Claude gains the `fetch_hybertext_site` tool. Paste a tx hash and ask Claude to read it:
+
+> *"Fetch `0xfff68000dd4c9bc6198a9fa10959194fb8ea7f304b7b8afeb7f93ce3e0f1e80d` and describe what the site does."*
+
+The same Worker also serves as a **public HTTP gateway** — paste any tx hash into the URL to view the site in your browser:
+```
+https://hybertext-mcp.carnation-903.workers.dev/0x{txhash}
+```
+
+**To self-host your own MCP + gateway on Cloudflare:**
+```sh
+cd packages/mcp
+pnpm install
+pnpm wrangler deploy
+```
+
 ## Packages
 
 | Package | Description |
@@ -58,6 +107,7 @@ swift build -c release
 | `packages/browser` | Swift source for the macOS browser |
 | `packages/cli` | Publisher CLI — `hybertext publish` |
 | `packages/resolver` | HTTP gateway — serves sites by tx hash over HTTP |
+| `packages/mcp` | MCP server — expose HyberText fetching as a Claude tool |
 | `packages/contracts` | `HyberRegistry.sol` — maps names to tx hashes |
 | `spec/HYTE-format.md` | Binary format specification |
 
