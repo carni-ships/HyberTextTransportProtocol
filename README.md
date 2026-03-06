@@ -142,15 +142,16 @@ See `spec/HYTE-format.md` for full specification.
 
 ## Size and Cost
 
-> Estimates use the **observed gas price from a real HyberText publish transaction on Berachain mainnet: 0.000007215 gwei** ([view tx](https://berascan.com/tx/0xfff68000dd4c9bc6198a9fa10959194fb8ea7f304b7b8afeb7f93ce3e0f1e80d)).
-> Assumes **BERA = $1**. Calldata is priced at ~16 gas per byte.
+> Gas price taken from a **real HyberText publish tx on Berachain mainnet: 0.000007215 gwei** ([view tx](https://berascan.com/tx/0xfff68000dd4c9bc6198a9fa10959194fb8ea7f304b7b8afeb7f93ce3e0f1e80d)).
+> Formula: `USD = gas × 0.000007215 × 10⁻⁹` (1 gwei = 10⁻⁹ BERA, BERA = $1).
+> Gas estimates use the measured effective rate of ~45 gas/byte (includes Berachain base tx + PoL overhead, calibrated from the real tx: 4,265 bytes → 191K gas).
 
 | Site type | Raw size | Compressed | ~Gas used | ~USD cost |
 |---|---|---|---|---|
-| Simple landing page | 5KB | 2KB | ~75K gas | ~$0.0000000054 (5 billionths) |
-| Full blog | 100KB | 40KB | ~700K gas | ~$0.000000051 (50 billionths) |
-| React app (bundled) | 500KB | 200KB | ~3.5M gas | ~$0.00000025 (1/4 millionth) |
-| Large app (chunked) | 2MB | 800KB | ~15M gas across 2 txs | ~$0.0000011 (1 millionth) |
+| Simple landing page | 5KB | 2KB | ~100K gas | ~$0.00000000072 (less than a billionth) |
+| Full blog | 100KB | 40KB | ~1.8M gas | ~$0.000000013 (~13 billionths) |
+| React app (bundled) | 500KB | 200KB | ~9M gas | ~$0.000000065 (~65 billionths) |
+| Large app (chunked) | 2MB | 800KB | ~37M gas across 2 txs | ~$0.000000267 (~1/4 millionth) |
 
 **Real-world example:** publishing the HyberText demo site (4,256 bytes compressed, 191K gas) cost **$0.000000001378** — roughly one billionth of a dollar.
 
