@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HyberText — On-Chain Web</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --purple: #a855f7;
+      --pink:   #ec4899;
+      --orange: #f97316;
+      --cyan:   #06b6d4;
+    }
+
+    body {
+      background: #050510;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    /* ── Canvas background ── */
+    #bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    /* ── Content ── */
+    .page {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    /* ── Badge ── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(168,85,247,.15);
+      border: 1px solid rgba(168,85,247,.4);
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--purple);
+      margin-bottom: 2rem;
+      animation: fadeDown .8s ease both;
+    }
+    .badge-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--purple);
+      box-shadow: 0 0 6px var(--purple);
+      animation: blink 2s ease-in-out infinite;
+    }
+
+    /* ── Hero heading ── */
+    h1 {
+      font-size: clamp(3rem, 9vw, 7.5rem);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -.03em;
+      margin-bottom: 1.5rem;
+      animation: fadeDown .9s .1s ease both;
+    }
+    .grad {
+      background: linear-gradient(135deg, #fff 20%, var(--purple) 50%, var(--pink) 80%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ── Typewriter sub ── */
+    .sub {
+      font-size: clamp(1rem, 2.5vw, 1.35rem);
+      color: rgba(255,255,255,.5);
+      max-width: 540px;
+      line-height: 1.6;
+      margin-bottom: 3rem;
+      min-height: 2em;
+      animation: fadeDown 1s .2s ease both;
+    }
+    #cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1.1em;
+      background: var(--purple);
+      vertical-align: text-bottom;
+      margin-left: 2px;
+      animation: blink 1s step-end infinite;
+    }
+
+    /* ── Stat cards ── */
+    .cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 3rem;
+      animation: fadeUp 1s .3s ease both;
+    }
+    .card {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      padding: 20px 28px;
+      min-width: 150px;
+      transition: transform .25s, border-color .25s, background .25s;
+      cursor: default;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(168,85,247,.4);
+      background: rgba(168,85,247,.07);
+    }
+    .card-val {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      display: block;
+    }
+    .card-label {
+      font-size: 12px;
+      color: rgba(255,255,255,.4);
+      margin-top: 4px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    /* ── CTA ── */
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 14px 28px;
+      border-radius: 999px;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      animation: fadeUp 1s .4s ease both;
+      transition: transform .2s, box-shadow .2s;
+    }
+    .cta::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--pink), var(--orange));
+      opacity: 0;
+      transition: opacity .3s;
+    }
+    .cta:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(168,85,247,.5); }
+    .cta:hover::before { opacity: 1; }
+    .cta span { position: relative; }
+
+    /* ── Floating orbs ── */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      pointer-events: none;
+      animation: drift linear infinite;
+    }
+    .orb1 {
+      width: 500px; height: 500px;
+      background: rgba(168,85,247,.18);
+      top: -100px; left: -100px;
+      animation-duration: 18s;
+    }
+    .orb2 {
+      width: 400px; height: 400px;
+      background: rgba(236,72,153,.15);
+      bottom: -80px; right: -80px;
+      animation-duration: 24s;
+      animation-direction: reverse;
+    }
+    .orb3 {
+      width: 300px; height: 300px;
+      background: rgba(6,182,212,.12);
+      top: 40%; left: 60%;
+      animation-duration: 20s;
+    }
+
+    /* ── Scroll indicator ── */
+    .scroll {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: rgba(255,255,255,.25);
+      font-size: 11px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      animation: fadeIn 2s 1.5s ease both;
+    }
+    .scroll-line {
+      width: 1px;
+      height: 40px;
+      background: linear-gradient(to bottom, rgba(168,85,247,.6), transparent);
+      animation: scrollPulse 2s ease-in-out infinite;
+    }
+
+    /* ── Second section ── */
+    .section2 {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 4rem 2rem;
+      gap: 48px;
+    }
+    .section2 h2 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 20px;
+      max-width: 900px;
+      width: 100%;
+    }
+    .step {
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 20px;
+      padding: 28px;
+      text-align: left;
+      transition: transform .3s, border-color .3s;
+    }
+    .step:hover { transform: translateY(-6px); border-color: rgba(168,85,247,.3); }
+    .step-num {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--purple);
+      margin-bottom: 12px;
+    }
+    .step-icon {
+      font-size: 2rem;
+      margin-bottom: 12px;
+      display: block;
+    }
+    .step h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; }
+    .step p  { font-size: 14px; color: rgba(255,255,255,.45); line-height: 1.6; }
+
+    .tx-box {
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(168,85,247,.2);
+      border-radius: 12px;
+      padding: 16px 24px;
+      font-family: "SF Mono", ui-monospace, monospace;
+      font-size: 12px;
+      color: var(--purple);
+      max-width: 700px;
+      word-break: break-all;
+      text-align: center;
+    }
+    .tx-label {
+      font-size: 11px;
+      color: rgba(255,255,255,.3);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* ── Keyframes ── */
+    @keyframes fadeDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+    @keyframes drift {
+      0%   { transform: translate(0, 0) scale(1); }
+      33%  { transform: translate(40px, -30px) scale(1.05); }
+      66%  { transform: translate(-20px, 40px) scale(.95); }
+      100% { transform: translate(0, 0) scale(1); }
+    }
+    @keyframes scrollPulse {
+      0%, 100% { opacity: .6; transform: scaleY(1); }
+      50%       { opacity: 1; transform: scaleY(1.15); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Floating orbs -->
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <div class="orb orb3"></div>
+
+  <!-- Particle canvas -->
+  <canvas id="bg"></canvas>
+
+  <!-- Hero -->
+  <section class="page">
+    <div class="badge"><span class="badge-dot"></span> Live on Berachain</div>
+
+    <h1><span class="grad">The Web,<br>On-Chain.</span></h1>
+
+    <p class="sub" id="sub-text"><span id="tw"></span><span id="cursor"></span></p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="card-val" id="c-bytes">657</span>
+        <span class="card-label">Bytes on-chain</span>
+      </div>
+      <div class="card">
+        <span class="card-val">∞</span>
+        <span class="card-label">Uptime</span>
+      </div>
+      <div class="card">
+        <span class="card-val">$0</span>
+        <span class="card-label">Hosting cost</span>
+      </div>
+      <div class="card">
+        <span class="card-val" id="c-block">—</span>
+        <span class="card-label">Berachain block</span>
+      </div>
+    </div>
+
+    <button class="cta" onclick="document.querySelector('.section2').scrollIntoView({behavior:'smooth'})">
+      <span>How it works →</span>
+    </button>
+
+    <div class="scroll">
+      <div class="scroll-line"></div>
+      scroll
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="section2">
+    <h2><span class="grad">How HyberText works</span></h2>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">Step 01</div>
+        <span class="step-icon">📦</span>
+        <h3>Pack & Compress</h3>
+        <p>Your site is brotli-compressed and encoded with a 9-byte HYTE header.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">Step 02</div>
+        <span class="step-icon">⛓️</span>
+        <h3>Push as Calldata</h3>
+        <p>One transaction to Berachain. The calldata <em>is</em> your website.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">Step 03</div>
+        <span class="step-icon">🔑</span>
+        <h3>Tx Hash = Address</h3>
+        <p>The transaction hash is the permanent, immutable URL of your site.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">Step 04</div>
+        <span class="step-icon">🌐</span>
+        <h3>Resolve Anywhere</h3>
+        <p>Any resolver fetches the tx, decodes HYTE, and renders your site.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="tx-label">This page's transaction hash</div>
+      <div class="tx-box" id="self-hash">Loading from chain…</div>
+    </div>
+  </section>
+
+  <script>
+    // ── Particle canvas ───────────────────────────────────────────────────────
+    const canvas = document.getElementById('bg');
+    const ctx    = canvas.getContext('2d');
+
+    let W, H, particles = [], mouse = { x: -9999, y: -9999 };
+
+    function resize() {
+      W = canvas.width  = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+    const COLORS = ['rgba(168,85,247,', 'rgba(236,72,153,', 'rgba(6,182,212,', 'rgba(249,115,22,'];
+
+    class Particle {
+      constructor() { this.reset(true); }
+      reset(initial) {
+        this.x  = Math.random() * W;
+        this.y  = initial ? Math.random() * H : H + 10;
+        this.r  = Math.random() * 1.8 + .4;
+        this.vx = (Math.random() - .5) * .3;
+        this.vy = -(Math.random() * .6 + .2);
+        this.life = 0;
+        this.maxLife = Math.random() * 300 + 200;
+        this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      }
+      update() {
+        // Mouse repulsion
+        const dx = this.x - mouse.x, dy = this.y - mouse.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 120) {
+          const force = (120 - dist) / 120;
+          this.vx += (dx / dist) * force * .4;
+          this.vy += (dy / dist) * force * .4;
+        }
+        this.vx *= .98;
+        this.vy *= .98;
+        this.x  += this.vx;
+        this.y  += this.vy;
+        this.life++;
+        if (this.life > this.maxLife || this.y < -10) this.reset(false);
+      }
+      draw() {
+        const alpha = Math.sin((this.life / this.maxLife) * Math.PI) * .7;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+        ctx.fillStyle = this.color + alpha + ')';
+        ctx.fill();
+      }
+    }
+
+    // Init 180 particles
+    for (let i = 0; i < 180; i++) particles.push(new Particle());
+
+    // Connection lines between close particles
+    function drawLines() {
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const d  = Math.sqrt(dx * dx + dy * dy);
+          if (d < 90) {
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(168,85,247,${(.4 * (1 - d / 90)).toFixed(3)})`;
+            ctx.lineWidth   = .5;
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    function loop() {
+      ctx.clearRect(0, 0, W, H);
+      drawLines();
+      particles.forEach(p => { p.update(); p.draw(); });
+      requestAnimationFrame(loop);
+    }
+    loop();
+
+    // ── Typewriter ────────────────────────────────────────────────────────────
+    const phrases = [
+      "No servers. No hosting fees. Just the chain.",
+      "Websites stored as calldata, forever.",
+      "Your tx hash is your URL.",
+      "Immutable. Unstoppable. On Berachain.",
+    ];
+    let pi = 0, ci = 0, deleting = false, tw = document.getElementById('tw');
+    function type() {
+      const phrase = phrases[pi];
+      if (!deleting) {
+        tw.textContent = phrase.slice(0, ++ci);
+        if (ci === phrase.length) { deleting = true; setTimeout(type, 2200); return; }
+        setTimeout(type, 38);
+      } else {
+        tw.textContent = phrase.slice(0, --ci);
+        if (ci === 0) { deleting = false; pi = (pi + 1) % phrases.length; setTimeout(type, 400); return; }
+        setTimeout(type, 18);
+      }
+    }
+    type();
+
+    // ── Live block number ─────────────────────────────────────────────────────
+    async function fetchBlock() {
+      try {
+        const res = await fetch('https://rpc.berachain.com', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 })
+        });
+        const { result } = await res.json();
+        const block = parseInt(result, 16);
+        document.getElementById('c-block').textContent = block.toLocaleString();
+      } catch {}
+    }
+    fetchBlock();
+    setInterval(fetchBlock, 12000);
+
+    // ── Self-referential tx hash ──────────────────────────────────────────────
+    // Inject by the publish script, or read from URL
+    const selfHash = window.__HYTE_TX__ || new URLSearchParams(location.search).get('tx') || location.pathname.split('/')[1] || null;
+    if (selfHash) document.getElementById('self-hash').textContent = selfHash;
+
+    // ── Card counter animations ───────────────────────────────────────────────
+    function countUp(el, target, duration) {
+      const start = performance.now();
+      function step(now) {
+        const t = Math.min((now - start) / duration, 1);
+        const ease = 1 - Math.pow(1 - t, 3);
+        el.textContent = Math.round(ease * target).toLocaleString();
+        if (t < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    // Animate bytes card on load
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) countUp(document.getElementById('c-bytes'), 657, 1200); });
+    });
+    obs.observe(document.getElementById('c-bytes'));
+
+    // ── Scroll-reveal steps ───────────────────────────────────────────────────
+    const stepObs = new IntersectionObserver(entries => {
+      entries.forEach((e, i) => {
+        if (e.isIntersecting) {
+          e.target.style.animation = `fadeUp .6s ${i * 0.1}s ease both`;
+        }
+      });
+    }, { threshold: .15 });
+    document.querySelectorAll('.step').forEach(s => {
+      s.style.opacity = '0';
+      stepObs.observe(s);
+    });
+  </script>
+</body>
+</html>
