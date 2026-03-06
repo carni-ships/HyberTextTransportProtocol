@@ -114,12 +114,17 @@ See `spec/HYTE-format.md` for full specification.
 
 ## Size and Cost
 
-| Site type | Raw size | Compressed | ~Gas cost | ~BERA cost |
-|---|---|---|---|---|
-| Simple landing page | 5KB | 2KB | ~75K gas | negligible |
-| Full blog | 100KB | 40KB | ~700K gas | very cheap |
-| React app (bundled) | 500KB | 200KB | ~3.5M gas | cheap |
-| Large app (chunked) | 2MB | 800KB | ~15M gas across 2 txs | still cheap |
+> Estimates assume **1 gwei gas price** and **BERA = $1**.
+> Cost in BERA = `gas × 0.000000001`. Calldata is priced at ~16 gas per byte.
+
+| Site type | Raw size | Compressed | ~Gas cost | ~BERA cost | ~USD cost |
+|---|---|---|---|---|---|
+| Simple landing page | 5KB | 2KB | ~75K gas | ~0.000075 BERA | ~$0.0001 |
+| Full blog | 100KB | 40KB | ~700K gas | ~0.0007 BERA | ~$0.0007 |
+| React app (bundled) | 500KB | 200KB | ~3.5M gas | ~0.0035 BERA | ~$0.004 |
+| Large app (chunked) | 2MB | 800KB | ~15M gas across 2 txs | ~0.015 BERA | ~$0.02 |
+
+For comparison, a year of traditional web hosting for the same sites costs $50–$200+/yr. With HyberText you pay once, and the site is up forever.
 
 ## Architecture
 
