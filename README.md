@@ -3,6 +3,18 @@
 Decentralized website hosting on Berachain. Sites are stored as calldata in
 transactions — the transaction hash is the permanent, immutable address of the site.
 
+## Why HyberText
+
+Traditional websites depend on servers, DNS registrars, CDNs, and hosting providers — any one of which can go down, censor content, or disappear. HyberText eliminates every one of those dependencies by storing the website directly on an L1 blockchain.
+
+**Decentralized** — There is no host. The site lives across every Berachain node on the network. No single company or government can take it down by pressuring a hosting provider, because there is no hosting provider.
+
+**Uncensorable** — Once a transaction is finalized on Berachain it cannot be altered, removed, or blocked. The content is part of the chain's history. Any node, anywhere in the world, can serve it to any resolver.
+
+**Permanent** — Calldata written to an L1 is there as long as the chain exists. No subscription renewals. No domain expiry. No S3 bucket accidentally made private. Pay once to publish; the site lives forever.
+
+**Verifiable** — Because the site is calldata in a transaction, anyone can verify that what they're seeing is exactly what was published. The tx hash is both the address and the content hash.
+
 ## How it works
 
 1. **Publish**: Compress your site, send it as calldata to Berachain
