@@ -1,0 +1,33 @@
+{
+  "name": "@hybertext/mcp",
+  "version": "0.1.0",
+  "description": "MCP server — expose HyberText site fetching as a Claude tool",
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "mime-types": "^2.1.35",
+    "tar-stream": "^3.1.7",
+    "viem": "^2.21.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/mime-types": "^2.1.4",
+    "@types/node": "^20.0.0",
+    "@types/tar-stream": "^3.1.3",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "tsup": {
+    "entry": ["src/index.ts"],
+    "format": ["cjs"],
+    "target": "node20",
+    "bundle": true,
+    "banner": {
+      "js": "#!/usr/bin/env node"
+    }
+  }
+}
