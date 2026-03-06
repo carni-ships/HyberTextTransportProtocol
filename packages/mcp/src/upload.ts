@@ -1,6 +1,6 @@
 import { createWalletClient, http, defineChain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { unzipSync } from 'fflate';
+import { unzip } from 'fflate';
 import {
   packFiles, wrapSingle, buildChunks, buildManifestPayload, CHUNK_SIZE,
 } from './packFiles.js';
@@ -39,43 +39,41 @@ function checkRateLimit(ip: string): boolean {
 
 const SKIP = /^(node_modules\/|\.git\/|\.DS_Store$|__pycache__\/|\.env)/;
 
-function extractZip(buffer: Buffer): { files: Map<string, Buffer>; skipped: number } {
-  const raw   = unzipSync(new Uint8Array(buffer));
-  const paths = Object.keys(raw).filter(k => !k.endsWith('/'));
+function extractZip(buffer: Buffer): Promise<{ files: Map<string, Buffer>; skipped: number }> {
+  return new Promise((resolve, reject) => {
+    unzip(new Uint8Array(buffer), (err, raw) => {
+      if (err) { reject(err); return; }
 
-  // Strip common root dir (e.g. "repo-main/") added by GitHub zips
-  const roots      = [...new Set(paths.map(k => k.split('/')[0]))];
-  const rootPrefix = roots.length === 1 ? roots[0] + '/' : '';
+      const paths      = Object.keys(raw).filter(k => !k.endsWith('/'));
+      const roots      = [...new Set(paths.map(k => k.split('/')[0]))];
+      const rootPrefix = roots.length === 1 ? roots[0] + '/' : '';
 
-  // Prefer a build output dir if present
-  const buildDirs = ['dist/', 'public/', 'build/', 'out/', '_site/', 'www/'];
-  let prefix = rootPrefix;
-  for (const dir of buildDirs) {
-    if (paths.some(k => k.startsWith(rootPrefix + dir))) {
-      prefix = rootPrefix + dir;
-      break;
-    }
-  }
+      const buildDirs = ['dist/', 'public/', 'build/', 'out/', '_site/', 'www/'];
+      let prefix = rootPrefix;
+      for (const dir of buildDirs) {
+        if (paths.some(k => k.startsWith(rootPrefix + dir))) {
+          prefix = rootPrefix + dir;
+          break;
+        }
+      }
 
-  const files = new Map<string, Buffer>();
-  let skipped = 0;
+      const files = new Map<string, Buffer>();
+      let skipped = 0;
 
-  for (const [p, content] of Object.entries(raw)) {
-    if (p.endsWith('/')) continue;
-    if (!p.startsWith(prefix)) continue;
-    const rel = p.slice(prefix.length);
-    if (!rel || SKIP.test(rel)) continue;
+      for (const [p, content] of Object.entries(raw)) {
+        if (p.endsWith('/')) continue;
+        if (!p.startsWith(prefix)) continue;
+        const rel = p.slice(prefix.length);
+        if (!rel || SKIP.test(rel)) continue;
+        if (LARGE_BINARY_EXT.test(rel) && content.length > LARGE_BINARY_THRESHOLD) {
+          skipped++; continue;
+        }
+        files.set(rel, Buffer.from(content));
+      }
 
-    // Skip large binary files
-    if (LARGE_BINARY_EXT.test(rel) && content.length > LARGE_BINARY_THRESHOLD) {
-      skipped++;
-      continue;
-    }
-
-    files.set(rel, Buffer.from(content));
-  }
-
-  return { files, skipped };
+      resolve({ files, skipped });
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -149,13 +147,13 @@ export async function handlePublish(request: Request, env: Env, origin: string):
     const file = form.get('file') as File | null;
     if (!file) return err(400, 'Missing "file" field');
     if (!file.name.toLowerCase().endsWith('.zip')) return err(400, 'Only .zip files accepted');
-    const result = extractZip(Buffer.from(await file.arrayBuffer()));
+    const result = await extractZip(Buffer.from(await file.arrayBuffer()));
     files = result.files; skipped = result.skipped;
   } else {
     const body = await request.json() as { github?: string };
     if (!body.github) return err(400, 'Provide a zip upload or { "github": "owner/repo" }');
     const zip = await fetchGithubZip(body.github);
-    const result = extractZip(zip);
+    const result = await extractZip(zip);
     files = result.files; skipped = result.skipped;
   }
 

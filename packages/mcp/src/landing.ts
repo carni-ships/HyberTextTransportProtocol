@@ -356,7 +356,9 @@ export function landingPage(host: string): string {
         });
       }
 
-      const data = await res.json();
+      let data;
+      const text = await res.text();
+      try { data = JSON.parse(text); } catch { data = { error: \`Server error (\${res.status})\` }; }
       if (!res.ok) { setStatus('error', data.error ?? 'Publish failed'); btn.disabled = false; return; }
 
       setStatus('success', \`Published \${data.files} file\${data.files === 1 ? '' : 's'} successfully!\`);
