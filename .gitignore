@@ -14,5 +14,9 @@ packages/contracts/.env
 *.d
 *.dia
 
+# Media / demo files
+*.gif
+*.mov
+
 # macOS
 .DS_Store

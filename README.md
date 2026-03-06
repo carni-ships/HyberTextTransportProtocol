@@ -40,6 +40,7 @@ open HyberTextBrowser.app
 **Navigating to a site:**
 - Paste a transaction hash (`0x...`) into the address bar and press Return or click **Go**
 - The browser auto-prefixes it to `bera:///0x...` and resolves it live from the chain
+- Try the live demo: `0xfff68000dd4c9bc6198a9fa10959194fb8ea7f304b7b8afeb7f93ce3e0f1e80d`
 
 **Requirements:** macOS 13 (Ventura) or later. Universal binary — runs natively on Apple Silicon and Intel.
 
@@ -146,10 +147,10 @@ See `spec/HYTE-format.md` for full specification.
 
 | Site type | Raw size | Compressed | ~Gas used | ~USD cost |
 |---|---|---|---|---|
-| Simple landing page | 5KB | 2KB | ~75K gas | ~$0.0000000054 |
-| Full blog | 100KB | 40KB | ~700K gas | ~$0.000000051 |
-| React app (bundled) | 500KB | 200KB | ~3.5M gas | ~$0.00000025 |
-| Large app (chunked) | 2MB | 800KB | ~15M gas across 2 txs | ~$0.0000011 |
+| Simple landing page | 5KB | 2KB | ~75K gas | ~$0.0000000054 (5 billionths) |
+| Full blog | 100KB | 40KB | ~700K gas | ~$0.000000051 (50 billionths) |
+| React app (bundled) | 500KB | 200KB | ~3.5M gas | ~$0.00000025 (1/4 millionth) |
+| Large app (chunked) | 2MB | 800KB | ~15M gas across 2 txs | ~$0.0000011 (1 millionth) |
 
 **Real-world example:** publishing the HyberText demo site (4,256 bytes compressed, 191K gas) cost **$0.000000001378** — roughly one billionth of a dollar.
 
