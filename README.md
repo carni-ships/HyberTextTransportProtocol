@@ -114,17 +114,19 @@ See `spec/HYTE-format.md` for full specification.
 
 ## Size and Cost
 
-> Estimates assume **1 gwei gas price** and **BERA = $1**.
-> Cost in BERA = `gas × 0.000000001`. Calldata is priced at ~16 gas per byte.
+> Estimates use the **observed gas price from a real HyberText publish transaction on Berachain mainnet: 0.000007215 gwei** ([view tx](https://berascan.com/tx/0xfff68000dd4c9bc6198a9fa10959194fb8ea7f304b7b8afeb7f93ce3e0f1e80d)).
+> Assumes **BERA = $1**. Calldata is priced at ~16 gas per byte.
 
-| Site type | Raw size | Compressed | ~Gas cost | ~BERA cost | ~USD cost |
-|---|---|---|---|---|---|
-| Simple landing page | 5KB | 2KB | ~75K gas | ~0.000075 BERA | ~$0.0001 |
-| Full blog | 100KB | 40KB | ~700K gas | ~0.0007 BERA | ~$0.0007 |
-| React app (bundled) | 500KB | 200KB | ~3.5M gas | ~0.0035 BERA | ~$0.004 |
-| Large app (chunked) | 2MB | 800KB | ~15M gas across 2 txs | ~0.015 BERA | ~$0.02 |
+| Site type | Raw size | Compressed | ~Gas used | ~USD cost |
+|---|---|---|---|---|
+| Simple landing page | 5KB | 2KB | ~75K gas | ~$0.0000000054 |
+| Full blog | 100KB | 40KB | ~700K gas | ~$0.000000051 |
+| React app (bundled) | 500KB | 200KB | ~3.5M gas | ~$0.00000025 |
+| Large app (chunked) | 2MB | 800KB | ~15M gas across 2 txs | ~$0.0000011 |
 
-For comparison, a year of traditional web hosting for the same sites costs $50–$200+/yr. With HyberText you pay once, and the site is up forever.
+**Real-world example:** publishing the HyberText demo site (4,256 bytes compressed, 191K gas) cost **$0.000000001378** — roughly one billionth of a dollar.
+
+For comparison, a year of traditional web hosting costs $50–$200+/yr. With HyberText you pay once (a fraction of a cent), and the site is up forever.
 
 ## Architecture
 
