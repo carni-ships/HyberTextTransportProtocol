@@ -55,6 +55,7 @@ swift build -c release
 | Package | Description |
 |---|---|
 | `HyberTextBrowser.app` | Native macOS browser — browse `bera://` sites directly |
+| `packages/browser` | Swift source for the macOS browser |
 | `packages/cli` | Publisher CLI — `hybertext publish` |
 | `packages/resolver` | HTTP gateway — serves sites by tx hash over HTTP |
 | `packages/contracts` | `HyberRegistry.sol` — maps names to tx hashes |
@@ -86,7 +87,6 @@ Publishing to Berachain...
 
 Site published!
   Address (tx hash): 0xabc123...
-  Gateway URL:       https://hybertext.xyz/0xabc123...
   Local resolver:    http://localhost:3000/0xabc123...
 ```
 

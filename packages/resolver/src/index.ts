@@ -53,7 +53,7 @@ app.get('/', (c) => {
   <pre>GET /{txhash}             — serve site root (index.html)
 GET /{txhash}/path/to/file — serve asset from tar site</pre>
   <h2>Publish</h2>
-  <pre>npx @hybertext/cli publish ./my-site/ --key $PRIVATE_KEY</pre>
+  <pre>cd packages/cli &amp;&amp; node dist/index.js publish ./my-site/ --key $PRIVATE_KEY</pre>
   <p>The returned tx hash is the permanent address of your site.</p>
 </body>
 </html>`);

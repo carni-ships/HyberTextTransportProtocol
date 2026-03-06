@@ -40,7 +40,6 @@ program
       console.log('');
       console.log('Site published!');
       console.log(`  Address (tx hash): ${txHash}`);
-      console.log(`  Gateway URL:       https://hybertext.xyz/${txHash}`);
       console.log(`  Local resolver:    http://localhost:3000/${txHash}`);
     } catch (err: any) {
       console.error('Error:', err.message ?? err);
