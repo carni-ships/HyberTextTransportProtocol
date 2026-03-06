@@ -1,0 +1,11 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+
+[profile.default.rpc_endpoints]
+berachain = "${BERACHAIN_RPC}"
+
+[etherscan]
+berachain = { key = "${BERASCAN_API_KEY}", url = "https://api.berascan.com/api" }

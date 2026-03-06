@@ -1,0 +1,9 @@
+{
+  "name": "hybertext",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:resolver": "pnpm --filter @hybertext/resolver dev"
+  }
+}

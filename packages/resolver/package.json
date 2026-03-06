@@ -1,0 +1,24 @@
+{
+  "name": "@hybertext/resolver",
+  "version": "0.1.0",
+  "description": "HTTP gateway for HyberText on-chain websites",
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.12.0",
+    "hono": "^4.4.0",
+    "mime-types": "^2.1.35",
+    "tar-stream": "^3.1.7",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/mime-types": "^2.1.4",
+    "@types/node": "^20.0.0",
+    "@types/tar-stream": "^3.1.3",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  }
+}
