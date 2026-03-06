@@ -5,3 +5,6 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 BERACHAIN_RPC = "https://rpc.berachain.com"
+
+# PRIVATE_KEY must be set as a secret — never commit it:
+#   pnpm wrangler secret put PRIVATE_KEY

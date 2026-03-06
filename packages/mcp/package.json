@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "fflate": "^0.8.2",
     "mime-types": "^2.1.35",
     "tar-stream": "^3.1.7",
     "viem": "^2.21.0",
@@ -26,8 +27,12 @@
     "wrangler": "^3.0.0"
   },
   "tsup": {
-    "entry": ["src/index.ts"],
-    "format": ["cjs"],
+    "entry": [
+      "src/index.ts"
+    ],
+    "format": [
+      "cjs"
+    ],
     "target": "node20",
     "bundle": true,
     "banner": {

@@ -1,14 +1,11 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { createServer } from './createServer.js';
 import { resolveSite, extractTar, ContentType } from './resolver.js';
-
-interface Env {
-  BERACHAIN_RPC?: string;
-}
+import { handlePublish, type Env } from './upload.js';
+import { landingPage } from './landing.js';
 
 const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
 
-// Minimal MIME type lookup (avoids bundling mime-types in the Worker)
 function mimeType(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, string> = {
@@ -39,17 +36,13 @@ async function serveGateway(txHash: string, assetPath: string, rpcUrl: string): 
       ? new Map([['index.html', decoded.payload]])
       : await extractTar(decoded.payload);
 
-  // Normalize path: strip leading slash, default to index.html
   const key = assetPath.replace(/^\//, '') || 'index.html';
-
-  // Direct match, then directory index fallback
   const buf = files.get(key) ?? files.get(`${key.replace(/\/$/, '')}/index.html`);
   if (!buf) return new Response('Not found', { status: 404 });
 
   return new Response(buf, {
     headers: {
       'Content-Type': mimeType(key),
-      // Sites are immutable — Cloudflare will cache at the edge
       'Cache-Control': 'public, max-age=31536000, immutable',
       'X-HyberText-TxHash': txHash,
     },
@@ -61,7 +54,7 @@ export default {
     const url    = new URL(request.url);
     const rpcUrl = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
 
-    // ── MCP server ──────────────────────────────────────────────────────────
+    // ── MCP server ───────────────────────────────────────────────────────────
     if (url.pathname === '/mcp') {
       const server    = createServer(rpcUrl);
       const transport = new WebStandardStreamableHTTPServerTransport({
@@ -72,10 +65,15 @@ export default {
       return transport.handleRequest(request);
     }
 
-    // ── HTTP gateway  GET /0x{txhash}[/asset/path] ──────────────────────────
-    const parts    = url.pathname.split('/').filter(Boolean); // ['0xabc...', 'style.css']
-    const txHash   = parts[0] ?? '';
-    const assetPath = '/' + parts.slice(1).join('/');         // '/style.css' or '/'
+    // ── Publish endpoint ─────────────────────────────────────────────────────
+    if (url.pathname === '/publish' && request.method === 'POST') {
+      return handlePublish(request, env, url.origin);
+    }
+
+    // ── HTTP gateway  GET /0x{txhash}[/asset/path] ───────────────────────────
+    const parts     = url.pathname.split('/').filter(Boolean);
+    const txHash    = parts[0] ?? '';
+    const assetPath = '/' + parts.slice(1).join('/');
 
     if (TX_HASH_RE.test(txHash)) {
       try {
@@ -86,26 +84,8 @@ export default {
     }
 
     // ── Landing page ─────────────────────────────────────────────────────────
-    return new Response(
-      `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>HyberText Gateway</title>
-  <style>body{font-family:monospace;max-width:640px;margin:4rem auto;padding:0 1rem}pre{background:#f0f0f0;padding:1rem;border-radius:6px;overflow-x:auto}</style>
-</head>
-<body>
-  <h1>HyberText Gateway</h1>
-  <p>Browse on-chain websites stored as Berachain calldata.</p>
-  <h2>Browse a site</h2>
-  <pre>https://${url.host}/0x{txhash}</pre>
-  <h2>MCP endpoint (for Claude)</h2>
-  <pre>https://${url.host}/mcp</pre>
-  <h2>Demo site</h2>
-  <pre><a href="/${  '0xfff68000dd4c9bc6198a9fa10959194fb8ea7f304b7b8afeb7f93ce3e0f1e80d'}">0xfff68000...e80d</a></pre>
-</body>
-</html>`,
-      { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-    );
+    return new Response(landingPage(url.host), {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
   },
 };
