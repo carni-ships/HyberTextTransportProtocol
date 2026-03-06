@@ -55,7 +55,9 @@ export async function packFiles(files: Map<string, Buffer>): Promise<PackResult>
     : await createTarBuffer(files);
 
   const contentType = htmlOnly ? ContentType.HTML : ContentType.TAR;
-  const compressed  = Buffer.from(await brotliCompress(rawPayload));
+  const compressed  = Buffer.from(await brotliCompress(rawPayload, {
+    params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 },
+  }));
   const header      = encodeHeader(Compression.BROTLI, contentType);
 
   return {
