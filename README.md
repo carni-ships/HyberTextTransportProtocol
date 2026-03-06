@@ -23,12 +23,39 @@ Traditional websites depend on servers, DNS registrars, CDNs, and hosting provid
 
 No servers. No DNS. No IPFS pinning. As long as Berachain exists, your site exists.
 
+## Browser
+
+**`HyberTextBrowser.app`** is a native macOS browser for browsing `bera://` sites — no gateway, no intermediary. It fetches calldata directly from the Berachain RPC, decodes the HYTE format, and renders in an embedded WebKit view.
+
+**To run:** double-click `HyberTextBrowser.app`, or from the terminal:
+```sh
+open HyberTextBrowser.app
+```
+
+> First launch: macOS will show a Gatekeeper warning since the app isn't notarized. Right-click → Open to bypass, or run:
+> ```sh
+> xattr -d com.apple.quarantine HyberTextBrowser.app
+> ```
+
+**Navigating to a site:**
+- Paste a transaction hash (`0x...`) into the address bar and press Return or click **Go**
+- The browser auto-prefixes it to `bera:///0x...` and resolves it live from the chain
+
+**Requirements:** macOS 13 (Ventura) or later. Universal binary — runs natively on Apple Silicon and Intel.
+
+**To build from source:**
+```sh
+cd packages/browser
+swift build -c release
+```
+
 ## Packages
 
 | Package | Description |
 |---|---|
+| `HyberTextBrowser.app` | Native macOS browser — browse `bera://` sites directly |
 | `packages/cli` | Publisher CLI — `hybertext publish` |
-| `packages/resolver` | HTTP gateway — serves sites by tx hash |
+| `packages/resolver` | HTTP gateway — serves sites by tx hash over HTTP |
 | `packages/contracts` | `HyberRegistry.sol` — maps names to tx hashes |
 | `spec/HYTE-format.md` | Binary format specification |
 
