@@ -4,6 +4,8 @@
 <dict>
     <key>CFBundleExecutable</key>
     <string>HyberTextBrowser</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>xyz.hybertext.browser</string>
     <key>CFBundleName</key>

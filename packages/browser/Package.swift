@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "HyberTextBrowser",
-            path: "Sources/HyberTextBrowser"
+            path: "Sources/HyberTextBrowser",
+            resources: [.copy("Resources/AppIcon.icns")]
         )
     ]
 )
