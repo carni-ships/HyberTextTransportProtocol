@@ -11,6 +11,10 @@ export const ContentType = {
   HTML: 0,
   TAR: 1,
   MANIFEST: 2,
+  FUNCTION: 3,
+  BLOB: 4,
+  // 5 = DB_PATCH, 6 = DB_SNAPSHOT (defined in @hybertext/db)
+  BLOB_REF: 7, // calldata pointer to an EIP-4844 blob (blobVersionedHash + blockNumber)
 } as const;
 
 export interface HyteHeader {

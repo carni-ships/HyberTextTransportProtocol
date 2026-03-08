@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HyberText Demo</title>
+  <meta name="description" content="Interactive demo and test suite for HyberText — decentralized websites on Berachain.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <a class="logo" href="#"><em>Hyber</em><span>Text</span></a>
+    <div class="site-hash" id="site-hash">on-chain</div>
+    <nav>
+      <a href="#info">Info</a>
+      <a href="#echo">Echo</a>
+      <a href="#kv">KV</a>
+      <a href="#db">HyberDB</a>
+      <a href="#tableland">Tableland</a>
+      <a href="#sessions">Sessions</a>
+      <a href="#index">Index</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ── Hero ──────────────────────────────────────────────────────────────── -->
+<div class="hero">
+  <h1><em>HyberText</em> Demo</h1>
+  <p>Decentralized websites, edge functions, and on-chain databases — all on Berachain. Test every feature interactively.</p>
+  <div class="hero-chain" style="display:none">
+    <span class="dot"></span>
+    <span>This page lives on-chain at</span>
+    <span class="hash" id="hero-hash"></span>
+  </div>
+</div>
+
+<main>
+
+  <!-- ── Section 1: Request Info ──────────────────────────────────────────── -->
+  <section class="section" id="info">
+    <div class="section-head">
+      <div class="section-icon">⚡</div>
+      <div>
+        <h2>Edge Function Environment</h2>
+        <p>Each request is handled by an edge function running in Cloudflare Workers. This shows the live request context and which gateway features are configured.</p>
+      </div>
+    </div>
+
+    <div class="section-body">
+      <div class="info-grid">
+        <div class="info-tile">
+          <div class="tile-label">Method</div>
+          <div class="tile-value" id="tile-method">—</div>
+        </div>
+        <div class="info-tile">
+          <div class="tile-label">Server Time</div>
+          <div class="tile-value mono" id="tile-time" style="font-size:11px">—</div>
+        </div>
+        <div class="info-tile">
+          <div class="tile-label">RPC</div>
+          <div class="tile-value mono" id="tile-rpc" style="font-size:11px">—</div>
+        </div>
+        <div class="info-tile">
+          <div class="tile-label">HyberDB</div>
+          <div class="tile-value" id="tile-db">—</div>
+        </div>
+        <div class="info-tile">
+          <div class="tile-label">KV Cache</div>
+          <div class="tile-value" id="tile-kv">—</div>
+        </div>
+        <div class="info-tile">
+          <div class="tile-label">Tableland</div>
+          <div class="tile-value" id="tile-tableland">—</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-info">↺ Refresh</button>
+      </div>
+
+      <div class="output-wrap">
+        <div class="output-label">Full response</div>
+        <pre class="output empty" id="out-info">Loading…</pre>
+        <button class="copy-btn" data-output="out-info">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Section 2: Echo ───────────────────────────────────────────────────── -->
+  <section class="section" id="echo">
+    <div class="section-head">
+      <div class="section-icon">📡</div>
+      <div>
+        <h2>Echo — POST Request Test</h2>
+        <p>Send any JSON payload to the edge function and get it echoed back. Tests that POST body parsing, Content-Type handling, and dynamic responses work.</p>
+      </div>
+    </div>
+
+    <div class="section-body">
+      <div class="field">
+        <label>Request body (JSON or plain text)</label>
+        <textarea id="echo-body" rows="4" placeholder='{"hello": "world", "feature": "edge functions"}'>{
+  "hello": "world",
+  "message": "HyberText edge functions work!"
+}</textarea>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-echo">Send POST ↗</button>
+        <span class="text-muted">Ctrl+Enter to send</span>
+      </div>
+      <div class="output-wrap">
+        <div class="output-label">Echo response</div>
+        <pre class="output empty" id="out-echo">Response will appear here…</pre>
+        <button class="copy-btn" data-output="out-echo">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Section 3: KV Cache ───────────────────────────────────────────────── -->
+  <section class="section" id="kv">
+    <div class="section-head">
+      <div class="section-icon">💾</div>
+      <div>
+        <h2>KV Cache</h2>
+        <p>Cloudflare KV is injected as <code class="mono">env.kv</code> in edge functions. Fast, globally distributed key-value storage. Requires the <code class="mono">EDGE_KV</code> binding in <code class="mono">wrangler.toml</code>.</p>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="tab-counter">Counter</button>
+      <button class="tab-btn"        data-tab="tab-kv-store">Get / Set</button>
+    </div>
+
+    <!-- Counter tab -->
+    <div class="tab-panel active section-body" id="tab-counter">
+      <p class="text-muted">A persistent counter stored in KV. Survives page reloads — the value lives in the gateway's KV namespace.</p>
+      <div class="counter-display" id="counter-display">…</div>
+      <div class="counter-controls">
+        <button class="btn btn-outline" id="btn-dec">− Decrement</button>
+        <button class="btn btn-primary" id="btn-inc">+ Increment</button>
+        <button class="btn btn-ghost btn-sm" id="btn-reset">Reset</button>
+      </div>
+      <div class="output-wrap">
+        <pre class="output empty" id="out-kv-counter">Click +/− to update the counter…</pre>
+      </div>
+    </div>
+
+    <!-- Get/Set tab -->
+    <div class="tab-panel section-body" id="tab-kv-store">
+      <p class="text-muted">Read and write arbitrary keys in the <code class="mono">demo:</code> KV namespace.</p>
+      <div class="split">
+        <div class="field">
+          <label>Key</label>
+          <input type="text" id="kv-key" placeholder="my-key" value="greeting">
+        </div>
+        <div class="field">
+          <label>Value</label>
+          <input type="text" id="kv-val" placeholder="my-value" value="hello from kv">
+        </div>
+      </div>
+      <div class="split">
+        <div class="field">
+          <label>TTL (seconds, optional)</label>
+          <input type="number" id="kv-ttl" placeholder="3600" min="1">
+        </div>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary"  id="btn-kv-get">Get</button>
+        <button class="btn btn-outline"  id="btn-kv-set">Set</button>
+        <button class="btn btn-danger btn-sm" id="btn-kv-del">Delete</button>
+      </div>
+      <div class="output-wrap">
+        <pre class="output empty" id="out-kv-store">Output will appear here…</pre>
+        <button class="copy-btn" data-output="out-kv-store">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Section 4: HyberDB ────────────────────────────────────────────────── -->
+  <section class="section" id="db">
+    <div class="section-head">
+      <div class="section-icon">🔗</div>
+      <div>
+        <h2>HyberDB — On-Chain Database</h2>
+        <p>HyberDB stores document patches as calldata on Berachain. No server, no SQL host — the chain <em>is</em> the database. Reads reconstruct state by replaying the patch chain from the contract head pointer. Requires <code class="mono">HYBERDB_ADDRESS</code> on the gateway.</p>
+      </div>
+    </div>
+
+    <div class="section-body">
+      <div class="split">
+        <div class="field">
+          <label>Namespace</label>
+          <input type="text" id="db-ns" value="hybertext/demo" placeholder="owner/collection">
+        </div>
+        <div class="field">
+          <label>Key (leave blank for all)</label>
+          <input type="text" id="db-key" placeholder="optional key">
+        </div>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-db-query">Read Records</button>
+        <button class="btn btn-outline" id="btn-db-info">Namespace Info</button>
+      </div>
+      <div class="output-wrap">
+        <div class="output-label">Result</div>
+        <pre class="output empty" id="out-db">Click "Read Records" to query the on-chain namespace…</pre>
+        <button class="copy-btn" data-output="out-db">Copy</button>
+      </div>
+      <div class="text-muted" style="margin-top:-4px">
+        💡 Pre-populate this namespace with: <code class="mono tag">hybertext db set hybertext/demo hello "world"</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Section 5: Tableland ──────────────────────────────────────────────── -->
+  <section class="section" id="tableland">
+    <div class="section-head">
+      <div class="section-icon">📊</div>
+      <div>
+        <h2>Tableland — On-Chain SQL</h2>
+        <p>Tableland is EVM-native SQL. Tables live on-chain; queries are served by Tableland's decentralized validator network. Injected as <code class="mono">env.tableland</code> with a simple <code class="mono">query(sql)</code> method.</p>
+      </div>
+    </div>
+
+    <div class="section-body">
+      <div class="field">
+        <label>SQL Query (Ctrl+Enter to run)</label>
+        <textarea id="sql-input" rows="3" placeholder="SELECT * FROM table_name LIMIT 10">SELECT * FROM healthbot_1_1 LIMIT 5</textarea>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-tableland">▶ Run Query</button>
+        <span class="text-muted">Ctrl+Enter to run</span>
+      </div>
+      <div class="output-wrap">
+        <div class="output-label">Query result</div>
+        <pre class="output empty" id="out-tableland">Results will appear here…</pre>
+        <button class="copy-btn" data-output="out-tableland">Copy</button>
+      </div>
+      <div class="text-muted" style="margin-top:-4px">
+        💡 Find public tables at <code class="mono tag">tableland.network/tables</code>. Table names follow the pattern <code class="mono tag">name_chainId_tableId</code>.
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Section 6: Sessions ───────────────────────────────────────────────── -->
+  <section class="section" id="sessions">
+    <div class="section-head">
+      <div class="section-icon">🔐</div>
+      <div>
+        <h2>Sessions — Auth Flow</h2>
+        <p>HMAC-SHA256 signed tokens backed by KV revocation. The session token is stored in <code class="mono">localStorage</code> here (use <code class="mono">Set-Cookie</code> in production). Requires <code class="mono">EDGE_KV</code> binding.</p>
+      </div>
+    </div>
+
+    <div class="section-body">
+
+      <!-- Logged-out state -->
+      <div id="session-login">
+        <div class="controls">
+          <div class="field">
+            <label>Username</label>
+            <input type="text" id="session-username-input" placeholder="alice" maxlength="32" style="max-width:240px">
+          </div>
+          <button class="btn btn-primary" id="btn-session-login" style="margin-bottom:0;align-self:flex-end">Log In</button>
+        </div>
+      </div>
+
+      <!-- Logged-in state -->
+      <div id="session-active" style="display:none">
+        <div class="session-card">
+          <div>
+            <div class="session-user">👤 <span id="session-username"></span></div>
+            <div class="session-meta" id="session-token-preview"></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" id="btn-session-verify">Verify</button>
+            <button class="btn btn-danger  btn-sm" id="btn-session-logout">Log Out</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="output-wrap">
+        <div class="output-label">Session API response</div>
+        <pre class="output empty" id="out-session">Log in to see the session token and payload…</pre>
+        <button class="copy-btn" data-output="out-session">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Section 7: Site Index ─────────────────────────────────────────────── -->
+  <section class="section" id="index">
+    <div class="section-head">
+      <div class="section-icon">🔍</div>
+      <div>
+        <h2>HyberIndex — Published Sites</h2>
+        <p>HyberIndex is an on-chain registry of published sites. Every <code class="mono">hybertext deploy</code> emits a <code class="mono">Published</code> event. Query it with <code class="mono">eth_getLogs</code> — no server needed.</p>
+      </div>
+    </div>
+
+    <div class="section-body">
+      <div class="split">
+        <div class="field">
+          <label>Publisher address (optional)</label>
+          <input type="text" id="index-publisher" placeholder="0x… filter by publisher">
+        </div>
+        <div class="field">
+          <label>Limit</label>
+          <input type="number" id="index-limit" value="10" min="1" max="50">
+        </div>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-index">Load Published Sites</button>
+      </div>
+
+      <!-- Table view -->
+      <div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)">
+        <table class="index-table">
+          <thead>
+            <tr>
+              <th>Tx Hash</th>
+              <th>Publisher</th>
+              <th>Type</th>
+              <th>Time</th>
+              <th>Block</th>
+            </tr>
+          </thead>
+          <tbody id="index-tbody">
+            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Click "Load Published Sites" to query HyberIndex…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="output-wrap">
+        <div class="output-label">Raw JSON</div>
+        <pre class="output empty" id="out-index-raw">…</pre>
+        <button class="copy-btn" data-output="out-index-raw">Copy</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

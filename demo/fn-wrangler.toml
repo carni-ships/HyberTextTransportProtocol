@@ -1,0 +1,16 @@
+name = "hybertext-demo-fn"
+main = "_fn_standalone.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "EDGE_KV"
+id = "f71765cc033e4143b145d46853b5c41f"
+
+[[services]]
+binding = "HYBERTEXT_MCP"
+service = "hybertext-mcp"
+
+[vars]
+BERACHAIN_RPC = "https://rpc.berachain.com"
+HYBERDB_ADDRESS = "0x375B45C2c0Be74a79D8a23501fC13dc78eCd6294"

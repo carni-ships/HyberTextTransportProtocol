@@ -1,5 +1,3 @@
-import { extract } from 'tar-stream';
-import { Readable } from 'stream';
 import { lookup } from 'mime-types';
 import { ContentType } from './format';
 
@@ -20,39 +18,50 @@ export async function extractSite(decoded: {
   }
 
   // TAR: extract all files into memory
-  const files = await extractTar(decoded.payload);
+  const files = extractTar(decoded.payload);
   return { contentType: ContentType.TAR, files };
 }
 
-async function extractTar(buf: Buffer): Promise<Map<string, Buffer>> {
-  return new Promise((resolve, reject) => {
-    const files = new Map<string, Buffer>();
-    const extractor = extract();
+/** Pure buffer-based POSIX ustar tar extractor — no Node.js streams required. */
+function extractTar(buf: Buffer): Map<string, Buffer> {
+  const files = new Map<string, Buffer>();
+  const BLOCK = 512;
+  let offset = 0;
 
-    extractor.on('entry', (header, stream, next) => {
-      const chunks: Buffer[] = [];
-      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      stream.on('end', () => {
-        if (header.type === 'file') {
-          files.set(normalizePath(header.name), Buffer.concat(chunks));
-        }
-        next();
-      });
-      stream.on('error', reject);
-    });
+  while (offset + BLOCK <= buf.length) {
+    const header = buf.subarray(offset, offset + BLOCK);
 
-    extractor.on('finish', () => resolve(files));
-    extractor.on('error', reject);
+    // End of archive: two consecutive zero blocks
+    if (header.every(b => b === 0)) break;
 
-    const readable = new Readable();
-    readable.push(buf);
-    readable.push(null);
-    readable.pipe(extractor);
-  });
-}
+    const nameRaw = header.subarray(0, 100).toString('ascii').replace(/\0+$/, '');
+    const prefix  = header.subarray(345, 500).toString('ascii').replace(/\0+$/, '');
+    const fullName = prefix ? `${prefix}/${nameRaw}` : nameRaw;
 
-function normalizePath(p: string): string {
-  return p.replace(/^\.\//, '').replace(/^\//, '');
+    // Parse size: standard octal or GNU base-256 (high bit set)
+    let size = 0;
+    if (header[124] & 0x80) {
+      for (let i = 125; i < 136; i++) size = size * 256 + header[i];
+    } else {
+      const sizeStr = header.subarray(124, 136).toString('ascii').trim().replace(/\0+$/, '');
+      size = sizeStr ? parseInt(sizeStr, 8) : 0;
+    }
+    if (!Number.isFinite(size) || size < 0) size = 0;
+
+    const typeFlag = header[156];
+    offset += BLOCK;
+
+    // typeFlag 0 or 0x30 = regular file; skip dirs, symlinks, GNU long-name blocks
+    const isRegularFile = typeFlag === 0 || typeFlag === 0x30;
+    if (isRegularFile && size > 0 && fullName) {
+      const p = fullName.replace(/^\.\//, '').replace(/^\//, '');
+      if (p) files.set(p, buf.subarray(offset, offset + size));
+    }
+
+    offset += Math.ceil(size / BLOCK) * BLOCK;
+  }
+
+  return files;
 }
 
 export interface ServeResult {
@@ -73,6 +82,15 @@ export function resolveFile(files: Map<string, Buffer>, requestPath: string): Se
   const withIndex = `${p.replace(/\/$/, '')}/index.html`;
   if (files.has(withIndex)) {
     return { content: files.get(withIndex)!, mimeType: 'text/html' };
+  }
+
+  // SPA fallback: extensionless paths → try 404.html, then index.html
+  const hasExt = p.includes('.') && !p.endsWith('/');
+  if (!hasExt) {
+    const fallback = files.get('404.html') ?? files.get('index.html');
+    if (fallback) {
+      return { content: fallback, mimeType: 'text/html' };
+    }
   }
 
   return null;

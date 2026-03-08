@@ -13,7 +13,24 @@ export const ContentType = {
   HTML: 0,
   TAR: 1,
   MANIFEST: 2,
+  FUNCTION: 3,
+  BLOB: 4,
+  // 5 = DB_PATCH, 6 = DB_SNAPSHOT (defined in @hybertext/db)
+  BLOB_REF: 7,   // calldata pointer to an EIP-4844 blob (blobVersionedHash + blockNumber)
+  INDEX:    5,   // gzip JSON IndexEntry[] snapshot published by a gateway; addressable via HyberIndex
+  ENCRYPTED: 8,  // AES-256-GCM encrypted HYTE payload; see encrypt.ts for layout
 } as const;
+
+// Encrypted payload layout (starts at offset HEADER_SIZE):
+//   [0..11]  IV (AES-256-GCM nonce, 12 bytes)
+//   [12..27] Auth tag (16 bytes, appended to ciphertext by SubtleCrypto)
+//   [28..]   Ciphertext (the inner HYTE payload, length = total - 28)
+// Note: SubtleCrypto.encrypt appends the 16-byte tag to the ciphertext,
+// so the raw encrypted bytes are actually [ciphertext + tag]. We prefix IV
+// separately, giving layout: IV(12) + encrypted_with_tag(N+16).
+export const ENC_IV_OFFSET  = 0;
+export const ENC_IV_SIZE    = 12;
+export const ENC_TAG_SIZE   = 16; // embedded at end of ciphertext by SubtleCrypto
 export type ContentTypeValue = (typeof ContentType)[keyof typeof ContentType];
 
 export interface HyteHeader {

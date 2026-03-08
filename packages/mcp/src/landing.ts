@@ -255,7 +255,7 @@ export function landingPage(host: string): string {
       <p>Drag &amp; drop a <strong>.zip</strong> file, or click to browse</p>
       <div class="filename" id="filename"></div>
     </div>
-    <p class="hint" style="margin-top:0.75rem">Max 5 MB uncompressed · 400 KB compressed · Static sites only</p>
+    <p class="hint" style="margin-top:0.75rem">Max 3 MB zip · 4 MB compressed · Static sites only</p>
   </div>
 
   <!-- GitHub panel -->

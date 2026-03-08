@@ -5,6 +5,46 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 BERACHAIN_RPC = "https://rpc.berachain.com"
+# Comma-separated fallback RPC URLs tried in order if the primary fails.
+# Add your own archive node or a paid RPC for better reliability.
+RPC_FALLBACKS = ""
+BASE_DOMAIN = ""
+REGISTRY_ADDRESS = "0x0000000000000000000000000000000000000000"
+HYBERDB_ADDRESS = "0x375B45C2c0Be74a79D8a23501fC13dc78eCd6294"
+HYBERINDEX_ADDRESS = "0x82afb1215F60d9e969dC7918888D362E0f1Ac9f6"
+# Set to the block HyberIndex was deployed at to avoid scanning from genesis.
+# Find it with: cast receipt $(cast logs --address 0x82af... --from-block 0 --json | jq -r '.[0].transactionHash')
+HYBERINDEX_FROM_BLOCK = "0x1122962"
 
-# PRIVATE_KEY must be set as a secret — never commit it:
+# HyberKeyVault — encrypted site support
+# Set VAULT_ADDRESS after deploying HyberKeyVault.sol
+VAULT_ADDRESS = "0x6D907c206a3fE8fF1046283E95054a9f264D6709"
+# Generate with: hybertext vault-keygen  (then set VAULT_X25519_PRIVKEY as a secret)
+VAULT_X25519_PUBKEY = "6c92f65c0b1a47272b7453d11b75ac3ed050e0866e357cd2727a24ced2be9f7a"
+
+# Secrets — never commit, set via wrangler secret put:
 #   pnpm wrangler secret put PRIVATE_KEY
+#   pnpm wrangler secret put VAULT_X25519_PRIVKEY
+
+[triggers]
+# Publish a fresh index snapshot every 10 minutes
+crons = ["*/10 * * * *"]
+
+[[kv_namespaces]]
+binding = "PAYMENT_SESSIONS_KV"
+id = "63d2a75e01d2437aa3f6f9f878be4572"
+
+[[kv_namespaces]]
+binding = "PAYMENT_USED_KV"
+id = "e6713a42ef35487fb69cf803d2bf3dc6"
+
+[[kv_namespaces]]
+binding = "EDGE_KV"
+id = "f71765cc033e4143b145d46853b5c41f"
+
+# Service bindings — Worker-to-Worker calls (fetch() to *.workers.dev is blocked by CF error 1042).
+# Convention: FN_{WORKER_NAME_UPPERCASED_UNDERSCORED} → worker name.
+# Gateway auto-detects the binding by transforming the fn_url worker hostname.
+[[services]]
+binding = "FN_HYBERTEXT_DEMO_FN"
+service = "hybertext-demo-fn"

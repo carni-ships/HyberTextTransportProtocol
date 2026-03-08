@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { createWalletClient, http, defineChain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { unzip } from 'fflate';
 import {
-  packFiles, wrapSingle, buildChunks, buildManifestPayload, CHUNK_SIZE,
+  packFiles, packFunction, wrapSingle, buildChunks, buildManifestPayload, CHUNK_SIZE,
 } from './packFiles.js';
 
 // ---------------------------------------------------------------------------
@@ -10,8 +11,10 @@ import {
 // ---------------------------------------------------------------------------
 
 const MAX_UNCOMPRESSED = 30 * 1024 * 1024;  // 30 MB (images get filtered below)
-const MAX_COMPRESSED   = 4 * 1024 * 1024;   // 4 MB compressed (~10 chunks max)
-const MAX_CHUNKS       = 10;
+const MAX_COMPRESSED   = 4 * 1024 * 1024;   // 4 MB compressed (~40 chunks max)
+const MAX_CHUNKS       = 40;
+const MAX_ZIP_SIZE     = 3 * 1024 * 1024;   // 3 MB zip — larger zips exceed Worker CPU limits
+const MAX_FUNCTIONS    = 5;                  // max number of edge functions per site
 
 // Skip large binary files that inflate size without adding readable content.
 // Small images/icons (<100KB) are kept.
@@ -39,7 +42,7 @@ function checkRateLimit(ip: string): boolean {
 
 const SKIP = /^(node_modules\/|\.git\/|\.DS_Store$|__pycache__\/|\.env)/;
 
-function extractZip(buffer: Buffer): Promise<{ files: Map<string, Buffer>; skipped: number }> {
+function extractZip(buffer: Buffer): Promise<{ files: Map<string, Buffer>; fnFiles: Map<string, Buffer>; skipped: number }> {
   return new Promise((resolve, reject) => {
     unzip(new Uint8Array(buffer), (err, raw) => {
       if (err) { reject(err); return; }
@@ -57,7 +60,8 @@ function extractZip(buffer: Buffer): Promise<{ files: Map<string, Buffer>; skipp
         }
       }
 
-      const files = new Map<string, Buffer>();
+      const files   = new Map<string, Buffer>();
+      const fnFiles = new Map<string, Buffer>();
       let skipped = 0;
 
       for (const [p, content] of Object.entries(raw)) {
@@ -65,13 +69,28 @@ function extractZip(buffer: Buffer): Promise<{ files: Map<string, Buffer>; skipp
         if (!p.startsWith(prefix)) continue;
         const rel = p.slice(prefix.length);
         if (!rel || SKIP.test(rel)) continue;
+
+        // Detect function files: functions/*.js or _worker.js
+        if (rel === '_worker.js') {
+          fnFiles.set('_worker', Buffer.from(content));
+          continue;
+        }
+        if (rel.startsWith('functions/') && rel.endsWith('.js')) {
+          // Strip "functions/" prefix and ".js" suffix to get the route key
+          const routeKey = rel.slice('functions/'.length, -'.js'.length);
+          if (routeKey) {
+            fnFiles.set(routeKey, Buffer.from(content));
+            continue;
+          }
+        }
+
         if (LARGE_BINARY_EXT.test(rel) && content.length > LARGE_BINARY_THRESHOLD) {
           skipped++; continue;
         }
         files.set(rel, Buffer.from(content));
       }
 
-      resolve({ files, skipped });
+      resolve({ files, fnFiles, skipped });
     });
   });
 }
@@ -90,7 +109,13 @@ export async function fetchGithubZip(input: string): Promise<Buffer> {
   const branches = branch ? [branch] : ['main', 'master', 'gh-pages'];
   for (const b of branches) {
     const res = await fetch(`https://codeload.github.com/${repo}/zip/refs/heads/${b}`);
-    if (res.ok) return Buffer.from(await res.arrayBuffer());
+    if (!res.ok) continue;
+    // Check Content-Length before downloading to fail fast on huge zips
+    const cl = res.headers.get('Content-Length');
+    if (cl && parseInt(cl) > MAX_ZIP_SIZE) {
+      throw new Error(`Repository ZIP is ${(parseInt(cl) / 1_048_576).toFixed(1)} MB — too large to process (max ${MAX_ZIP_SIZE / 1_048_576} MB). For larger sites, use the CLI.`);
+    }
+    return Buffer.from(await res.arrayBuffer());
   }
   throw new Error(`Could not fetch ${repo} — is the repo public?`);
 }
@@ -108,14 +133,43 @@ function makeWallet(env: Env) {
     nativeCurrency: { name: 'BERA', symbol: 'BERA', decimals: 18 },
     rpcUrls: { default: { http: [rpcUrl] } },
   });
-  return createWalletClient({ account, chain, transport: http(rpcUrl) });
+  return createWalletClient({ account, chain, transport: http(rpcUrl, { batch: false }) });
 }
 
-async function sendTx(data: Buffer, env: Env): Promise<`0x${string}`> {
-  return makeWallet(env).sendTransaction({
-    to:    '0x000000000000000000000000000000000000dEaD',
-    data:  `0x${data.toString('hex')}`,
-    value: 0n,
+async function rpcCall(rpcUrl: string, method: string, params: unknown[]): Promise<unknown> {
+  const res = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
+  });
+  if (!res.ok) throw new Error(`RPC ${method} failed: HTTP ${res.status}`);
+  const json = await res.json() as { result?: unknown; error?: { message: string } };
+  if (json.error) throw new Error(`RPC ${method} error: ${json.error.message}`);
+  return json.result;
+}
+
+interface TxContext { rpcUrl: string; wallet: ReturnType<typeof makeWallet>; nonce: number; gasPrice: bigint; }
+
+async function makeTxContext(env: Env): Promise<TxContext> {
+  const rpcUrl   = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
+  const wallet   = makeWallet(env);
+  // Use raw fetch for pre-flight calls — viem's transport batches these with large payloads
+  // which causes some RPCs to reject the combined request body.
+  const nonceHex    = await rpcCall(rpcUrl, 'eth_getTransactionCount', [wallet.account.address, 'pending']);
+  const gasPriceHex = await rpcCall(rpcUrl, 'eth_gasPrice', []);
+  return { rpcUrl, wallet, nonce: parseInt(nonceHex as string, 16), gasPrice: BigInt(gasPriceHex as string) };
+}
+
+async function sendTx(data: Buffer, ctx: TxContext): Promise<`0x${string}`> {
+  const gas   = BigInt((21_000 + data.length * 30) * 4);
+  const nonce = ctx.nonce++;
+  return ctx.wallet.sendTransaction({
+    to:       '0x000000000000000000000000000000000000dEaD',
+    data:     `0x${data.toString('hex')}`,
+    value:    0n,
+    gas,
+    gasPrice: ctx.gasPrice,
+    nonce,
   });
 }
 
@@ -124,8 +178,31 @@ async function sendTx(data: Buffer, env: Env): Promise<`0x${string}`> {
 // ---------------------------------------------------------------------------
 
 export interface Env {
-  BERACHAIN_RPC?: string;
-  PRIVATE_KEY?:   string;
+  BERACHAIN_RPC?:          string;
+  /** Comma-separated fallback RPC URLs tried in order when BERACHAIN_RPC fails. */
+  RPC_FALLBACKS?:          string;
+  PRIVATE_KEY?:            string;
+  BASE_DOMAIN?:            string;
+  REGISTRY_ADDRESS?:       string;
+  HYBERDB_ADDRESS?:        string;
+  HYBERINDEX_ADDRESS?:     string;
+  /** Earliest block to scan when querying HyberIndex events (hex or decimal).
+   *  Set to the block HyberIndex was deployed at to avoid scanning from genesis. */
+  HYBERINDEX_FROM_BLOCK?:  string;
+  // Vault / encrypted sites
+  VAULT_ADDRESS?:          string;   // HyberKeyVault contract address
+  VAULT_X25519_PUBKEY?:    string;   // 32-byte hex — exposed via GET /vault/pubkey
+  VAULT_X25519_PRIVKEY?:   string;   // 32-byte hex secret — never exposed
+  PAYMENT_SESSIONS_KV?:    KVNamespace;
+  PAYMENT_USED_KV?:        KVNamespace;
+  /** KV namespace injected into edge functions as env.kv */
+  EDGE_KV?:                KVNamespace;
+}
+
+// Forward-declare KVNamespace so upload.ts doesn't need to import x402.ts
+interface KVNamespace {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string, opts?: { expirationTtl?: number }): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +216,7 @@ export async function handlePublish(request: Request, env: Env, origin: string):
   if (!checkRateLimit(ip)) return err(429, 'Rate limit: max 5 publishes per hour per IP');
 
   let files: Map<string, Buffer>;
+  let fnFiles: Map<string, Buffer>;
   let skipped = 0;
 
   const ct = request.headers.get('Content-Type') ?? '';
@@ -147,17 +225,28 @@ export async function handlePublish(request: Request, env: Env, origin: string):
     const file = form.get('file') as File | null;
     if (!file) return err(400, 'Missing "file" field');
     if (!file.name.toLowerCase().endsWith('.zip')) return err(400, 'Only .zip files accepted');
-    const result = await extractZip(Buffer.from(await file.arrayBuffer()));
-    files = result.files; skipped = result.skipped;
+    const zipBuf = Buffer.from(await file.arrayBuffer());
+    if (zipBuf.length > MAX_ZIP_SIZE) {
+      return err(413, `ZIP is ${(zipBuf.length / 1_048_576).toFixed(1)} MB — too large to process (max ${MAX_ZIP_SIZE / 1_048_576} MB). For larger sites, use the CLI.`);
+    }
+    const result = await extractZip(zipBuf);
+    files = result.files; fnFiles = result.fnFiles; skipped = result.skipped;
   } else {
     const body = await request.json() as { github?: string };
     if (!body.github) return err(400, 'Provide a zip upload or { "github": "owner/repo" }');
     const zip = await fetchGithubZip(body.github);
+    if (zip.length > MAX_ZIP_SIZE) {
+      return err(413, `Repository ZIP is ${(zip.length / 1_048_576).toFixed(1)} MB — too large to process (max ${MAX_ZIP_SIZE / 1_048_576} MB). For larger sites, use the CLI.`);
+    }
     const result = await extractZip(zip);
-    files = result.files; skipped = result.skipped;
+    files = result.files; fnFiles = result.fnFiles; skipped = result.skipped;
   }
 
   if (files.size === 0) return err(400, 'No publishable files found');
+
+  if (fnFiles.size > MAX_FUNCTIONS) {
+    return err(413, `Too many function files: ${fnFiles.size} (max ${MAX_FUNCTIONS})`);
+  }
 
   const totalBytes = [...files.values()].reduce((s, b) => s + b.length, 0);
   if (totalBytes > MAX_UNCOMPRESSED) {
@@ -171,30 +260,56 @@ export async function handlePublish(request: Request, env: Env, origin: string):
   }
 
   let txHash: `0x${string}`;
+  const ctx = await makeTxContext(env);
 
-  if (packed.compressed.length <= CHUNK_SIZE) {
-    // Single transaction
-    txHash = await sendTx(wrapSingle(packed), env);
+  // Publish each function file as a FUNCTION-type HYTE tx
+  const functionHashes: Record<string, string> = {};
+  const fnHashes:       Record<string, string> = {};
+  for (const [routeKey, jsCode] of fnFiles) {
+    const fnPayload = await packFunction(jsCode);
+    const fnTxHash  = await sendTx(fnPayload, ctx);
+    functionHashes[routeKey] = fnTxHash;
+    fnHashes[routeKey]       = sha256hex(fnPayload);
+  }
+
+  const hasFunctions = Object.keys(functionHashes).length > 0;
+
+  // If there are functions, or the payload requires chunking, use manifest format
+  if (packed.compressed.length <= CHUNK_SIZE && !hasFunctions) {
+    // Single transaction — no functions, fits in one chunk
+    txHash = await sendTx(wrapSingle(packed), ctx);
   } else {
-    // Chunked: publish each chunk, then the manifest
+    // Chunked: publish each chunk with sha256 hash, then the v3 manifest
     const numChunks = Math.ceil(packed.compressed.length / CHUNK_SIZE);
     if (numChunks > MAX_CHUNKS) {
       return err(413, `Would require ${numChunks} chunks (max ${MAX_CHUNKS})`);
     }
 
     const { chunks } = buildChunks(packed);
-    const chunkHashes: string[] = [];
+    const chunkTxHashes: string[]  = [];
+    const chunkSha256:   string[]  = [];
     for (const chunk of chunks) {
-      chunkHashes.push(await sendTx(chunk, env));
+      chunkTxHashes.push(await sendTx(chunk, ctx));
+      chunkSha256.push(sha256hex(chunk));
     }
-    const manifestPayload = buildManifestPayload(chunkHashes, packed);
-    txHash = await sendTx(manifestPayload, env);
+    const manifestPayload = buildManifestPayload(
+      chunkTxHashes,
+      packed,
+      hasFunctions ? functionHashes : undefined,
+      chunkSha256,
+      hasFunctions ? fnHashes : undefined,
+    );
+    txHash = await sendTx(manifestPayload, ctx);
   }
+
+  // Announce to HyberIndex (fire-and-forget — non-critical)
+  announceIndex(txHash, env).catch(() => { /* ignore */ });
 
   return new Response(JSON.stringify({
     txHash,
     gatewayUrl: `${origin}/${txHash}`,
     files: packed.fileCount,
+    ...(hasFunctions ? { functions: Object.keys(functionHashes).length } : {}),
     ...(skipped > 0 ? { skippedLargeFiles: skipped } : {}),
   }), { headers: { 'Content-Type': 'application/json' } });
 }
@@ -203,5 +318,82 @@ function err(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function sha256hex(buf: Buffer): string {
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+// HyberIndex ABI: publish(bytes32 txHash, uint8 contentType)
+// Manually ABI-encoded since we don't want to spin up a full viem client just for this.
+// Selector: cast sig "publish(bytes32,uint8)" = 0x65b38482
+const HYBERINDEX_PUBLISH_SELECTOR = '65b38482';
+
+/**
+ * Publish a single HTML (or any text) file as a HyberText site.
+ * Used by MCP tools to bypass the HTTP multipart flow.
+ */
+export async function publishHtml(
+  content: string,
+  filename: string,
+  env: Env,
+  origin: string,
+): Promise<{ txHash: string; gatewayUrl: string }> {
+  if (!env.PRIVATE_KEY) throw new Error('PRIVATE_KEY not configured');
+  const files = new Map([[filename, Buffer.from(content, 'utf8')]]);
+  const packed = await packFiles(files);
+  const ctx    = await makeTxContext(env);
+  let txHash: `0x${string}`;
+
+  if (packed.compressed.length <= CHUNK_SIZE) {
+    txHash = await sendTx(wrapSingle(packed), ctx);
+  } else {
+    const numChunks = Math.ceil(packed.compressed.length / CHUNK_SIZE);
+    if (numChunks > MAX_CHUNKS) throw new Error(`Content too large — would require ${numChunks} chunks (max ${MAX_CHUNKS})`);
+    const { chunks } = buildChunks(packed);
+    const chunkTxHashes: string[] = [];
+    const chunkSha256:   string[] = [];
+    for (const chunk of chunks) {
+      chunkTxHashes.push(await sendTx(chunk, ctx));
+      chunkSha256.push(sha256hex(chunk));
+    }
+    txHash = await sendTx(buildManifestPayload(chunkTxHashes, packed, undefined, chunkSha256), ctx);
+  }
+
+  announceIndex(txHash, env).catch(() => { /* non-fatal */ });
+  return { txHash, gatewayUrl: `${origin}/${txHash}/` };
+}
+
+async function announceIndex(txHash: `0x${string}`, env: Env): Promise<void> {
+  const indexAddr = env.HYBERINDEX_ADDRESS;
+  if (!indexAddr || indexAddr === '0x0000000000000000000000000000000000000000') return;
+  if (!env.PRIVATE_KEY || !env.BERACHAIN_RPC) return;
+
+  // ABI encode: publish(bytes32, uint8)
+  // Layout: [4-byte selector][32-byte txHash (bytes32)][32-byte contentType (uint8 padded)]
+  const rpcUrl  = env.BERACHAIN_RPC;
+  const calldata = '0x'
+    + HYBERINDEX_PUBLISH_SELECTOR
+    + txHash.slice(2).padStart(64, '0')    // bytes32
+    + '0000000000000000000000000000000000000000000000000000000000000002'; // uint8(2) = MANIFEST
+
+  const nonceHex    = await (await fetch(rpcUrl, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getTransactionCount', params: [makeWallet(env).account.address, 'pending'], id: 1 }),
+  })).json().then((r: any) => r.result as string);
+  const gasPriceHex = await (await fetch(rpcUrl, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_gasPrice', params: [], id: 1 }),
+  })).json().then((r: any) => r.result as string);
+
+  const wallet = makeWallet(env);
+  await wallet.sendTransaction({
+    to:       indexAddr as `0x${string}`,
+    data:     calldata as `0x${string}`,
+    value:    0n,
+    gas:      80_000n,
+    gasPrice: BigInt(gasPriceHex),
+    nonce:    parseInt(nonceHex, 16),
   });
 }
