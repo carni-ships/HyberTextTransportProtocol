@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "hybertext": {
+      "type": "http",
+      "url": "https://hybertext-mcp.carnation-903.workers.dev/mcp",
+      "note": "HyberText gateway — provides research_*, job_*, taskboard_*, db_*, kv_* tools"
+    }
+  }
+}
