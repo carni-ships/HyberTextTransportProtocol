@@ -1,0 +1,326 @@
+/**
+ * HyberResearch — SETI@home-style parallel agent research protocol.
+ *
+ * Each agent publishes Insights as permanent calldata (contentType=9 in HyberIndex).
+ * Insights cite prior Insights, forming an emergent knowledge DAG — no merge
+ * ceremony, no bottleneck, no single owner. Every agent owns its own namespace slice.
+ *
+ * Architecture:
+ *   Immutable layer:  Insight JSON stored as calldata (txHash = permanent address)
+ *   Index layer:      HyberIndex events + KV cache (per-topic feeds, citation index)
+ *   Coordination:     Direction claims (advisory, TTL-based) in per-agent HyberDB
+ *   Self-improvement: Strategy records in per-agent HyberDB + KV-aggregated feed
+ */
+
+import { createWalletClient, http, defineChain, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import type { Env } from './upload.js';
+
+// ─── Content type ─────────────────────────────────────────────────────────────
+
+/** HyberIndex contentType tag for research insights. */
+export const CONTENT_TYPE_INSIGHT  = 9;
+/** HyberIndex contentType tag for research strategies / meta-insights. */
+export const CONTENT_TYPE_STRATEGY = 10;
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface Insight {
+  v: 1;
+  txHash:              string;      // self-referential — filled after publish
+  agentId:             string;      // wallet address of publishing agent
+  agentSeq:            number;      // I-{n} within this agent's namespace
+  title:               string;
+  summary:             string;      // 1–2 paragraphs
+  topics:              string[];    // lowercase hyphen-separated tags
+  citations:           string[];    // txHashes of prior Insights this builds on
+  artifactTxHash?:     string;      // txHash of the full result artifact
+  confidence?:         number;      // 0.0–1.0 self-assessed
+  supersedesInsight?:  string;      // txHash of insight this replaces
+  acpJobId?:           string;      // ERC-8183 job that produced this
+  taskboardRef?:       { workspace: string; taskId: string };
+  publishedAt:         number;
+}
+
+/** Compact summary stored in KV — no full content. */
+export interface InsightSummary {
+  txHash:       string;
+  agentId:      string;
+  title:        string;
+  summary:      string;   // first 300 chars
+  topics:       string[];
+  citations:    string[];
+  citedByCount: number;
+  publishedAt:  number;
+}
+
+export interface DirectionClaim {
+  topicSlug:         string;
+  description:       string;
+  agentId:           string;
+  claimedAt:         number;
+  expiresAt:         number;
+  intentConfidence:  number;  // 0.0–1.0
+}
+
+export interface ResearchStrategy {
+  agentSeq:            number;
+  agentId:             string;
+  category:            'prompting' | 'tool-usage' | 'search' | 'synthesis' | 'avoidance';
+  title:               string;
+  content:             string;
+  impact?:             string;
+  derivedFromInsight?: string;   // txHash
+  endorsements:        string[]; // agentIds that confirmed this worked
+  publishedAt:         number;
+}
+
+// ─── KV key helpers ───────────────────────────────────────────────────────────
+
+export const KV = {
+  insightSummary:  (txHash: string)    => `research:insight:${txHash}`,
+  feed:            (topic: string)     => `research:feed:${topic.toLowerCase()}`,
+  citedBy:         (txHash: string)    => `research:cited-by:${txHash}`,
+  claim:           (topicSlug: string) => `research:claim:${topicSlug.toLowerCase()}`,
+  strategyLatest:  ()                  => `research:strategy:latest`,
+  agentInsightSeq: (agentId: string)   => `research:seq:${agentId.toLowerCase()}:insight`,
+  agentStrategySeq:(agentId: string)   => `research:seq:${agentId.toLowerCase()}:strategy`,
+};
+
+// ─── Sequence counter ─────────────────────────────────────────────────────────
+
+export async function nextResearchSeq(kv: any, agentId: string, type: 'insight' | 'strategy'): Promise<number> {
+  const key = type === 'insight'
+    ? KV.agentInsightSeq(agentId)
+    : KV.agentStrategySeq(agentId);
+  const prev = await kv.get(key);
+  const n    = parseInt(prev ?? '0', 10) + 1;
+  await kv.put(key, String(n));
+  return n;
+}
+
+// ─── HyberIndex announce with contentType ────────────────────────────────────
+
+// HyberIndex.publish(bytes32,uint8) selector = 0x65b38482
+const HYBERINDEX_PUBLISH_SELECTOR = '65b38482';
+
+export async function announceToIndex(
+  txHash: string,
+  contentType: number,
+  env: Env,
+): Promise<void> {
+  const indexAddr = env.HYBERINDEX_ADDRESS;
+  if (!indexAddr || indexAddr === '0x0000000000000000000000000000000000000000') return;
+  if (!env.PRIVATE_KEY || !env.BERACHAIN_RPC) return;
+
+  try {
+    const rpcUrl  = env.BERACHAIN_RPC;
+    const hash32  = txHash.replace(/^0x/, '').padStart(64, '0');
+    const ctPad   = contentType.toString(16).padStart(64, '0');
+    const calldata = `0x${HYBERINDEX_PUBLISH_SELECTOR}${hash32}${ctPad}` as Hex;
+
+    const account = privateKeyToAccount(env.PRIVATE_KEY as Hex);
+    const chain   = defineChain({
+      id: 80094, name: 'Berachain',
+      nativeCurrency: { name: 'BERA', symbol: 'BERA', decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const wallet  = createWalletClient({ account, chain, transport: http(rpcUrl, { batch: false }) });
+
+    const [nonceHex, gasPriceHex] = await Promise.all([
+      rpcPost(rpcUrl, 'eth_getTransactionCount', [account.address, 'pending']),
+      rpcPost(rpcUrl, 'eth_gasPrice', []),
+    ]);
+
+    await wallet.sendTransaction({
+      to:       indexAddr as Hex,
+      data:     calldata,
+      value:    0n,
+      gas:      80_000n,
+      gasPrice: BigInt(gasPriceHex as string),
+      nonce:    parseInt(nonceHex as string, 16),
+    });
+  } catch {
+    // Non-fatal — insight is published; index announcement is best-effort
+  }
+}
+
+async function rpcPost(rpcUrl: string, method: string, params: unknown[]): Promise<unknown> {
+  const res  = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
+  });
+  const json = await res.json() as { result?: unknown; error?: { message: string } };
+  if (json.error) throw new Error(json.error.message);
+  return json.result;
+}
+
+// ─── KV feed operations ───────────────────────────────────────────────────────
+
+const FEED_MAX = 50;
+
+/** Prepend a new InsightSummary to each topic's feed in KV. */
+export async function kvUpdateFeeds(kv: any, insight: Insight, citedByCount = 0): Promise<void> {
+  const summary: InsightSummary = {
+    txHash:       insight.txHash,
+    agentId:      insight.agentId,
+    title:        insight.title,
+    summary:      insight.summary.slice(0, 300),
+    topics:       insight.topics,
+    citations:    insight.citations,
+    citedByCount,
+    publishedAt:  insight.publishedAt,
+  };
+
+  // Per-topic feeds
+  await Promise.all([
+    // Global summary cache
+    kv.put(KV.insightSummary(insight.txHash), JSON.stringify(summary)),
+    // Per-topic feeds
+    ...insight.topics.map(async (topic: string) => {
+      const key  = KV.feed(topic);
+      const prev = await kv.get(key);
+      const feed: InsightSummary[] = prev ? JSON.parse(prev) : [];
+      feed.unshift(summary);
+      if (feed.length > FEED_MAX) feed.splice(FEED_MAX);
+      await kv.put(key, JSON.stringify(feed));
+    }),
+  ]);
+}
+
+/** Update reverse citation index: for each cited txHash, record that this insight cites it. */
+export async function kvUpdateCitedBy(kv: any, citations: string[], fromTxHash: string): Promise<void> {
+  await Promise.all(citations.map(async (cited: string) => {
+    const key  = KV.citedBy(cited);
+    const prev = await kv.get(key);
+    const arr: string[] = prev ? JSON.parse(prev) : [];
+    if (!arr.includes(fromTxHash)) arr.unshift(fromTxHash);
+    await kv.put(key, JSON.stringify(arr));
+  }));
+}
+
+/** Read topic feed from KV. Returns empty array on miss. */
+export async function kvGetFeed(kv: any, topic: string, limit: number): Promise<InsightSummary[]> {
+  const val = await kv.get(KV.feed(topic));
+  if (!val) return [];
+  const feed: InsightSummary[] = JSON.parse(val);
+  return feed.slice(0, limit);
+}
+
+/** Read cited-by list for a txHash. */
+export async function kvGetCitedBy(kv: any, txHash: string): Promise<string[]> {
+  const val = await kv.get(KV.citedBy(txHash));
+  return val ? JSON.parse(val) : [];
+}
+
+/** Get a single insight summary from KV. */
+export async function kvGetInsightSummary(kv: any, txHash: string): Promise<InsightSummary | null> {
+  const val = await kv.get(KV.insightSummary(txHash));
+  return val ? JSON.parse(val) : null;
+}
+
+// ─── Direction claims ─────────────────────────────────────────────────────────
+
+/** Merge a new claim into the KV claim list for a topic, expiring stale entries. */
+export async function kvAddClaim(kv: any, claim: DirectionClaim): Promise<void> {
+  const key  = KV.claim(claim.topicSlug);
+  const prev = await kv.get(key);
+  const claims: DirectionClaim[] = prev ? JSON.parse(prev) : [];
+  const now  = Math.floor(Date.now() / 1000);
+  // Remove expired or same-agent entries, then prepend new claim
+  const fresh = claims.filter(c => c.expiresAt > now && c.agentId !== claim.agentId);
+  fresh.unshift(claim);
+  await kv.put(key, JSON.stringify(fresh), { expirationTtl: Math.max(...fresh.map(c => c.expiresAt - now)) });
+}
+
+export async function kvGetClaims(kv: any, topicSlug: string): Promise<DirectionClaim[]> {
+  const val = await kv.get(KV.claim(topicSlug));
+  if (!val) return [];
+  const now = Math.floor(Date.now() / 1000);
+  return (JSON.parse(val) as DirectionClaim[]).filter(c => c.expiresAt > now);
+}
+
+// ─── Strategy feed ────────────────────────────────────────────────────────────
+
+const STRATEGY_MAX = 100;
+
+export async function kvAddStrategy(kv: any, s: ResearchStrategy): Promise<void> {
+  const key  = KV.strategyLatest();
+  const prev = await kv.get(key);
+  const feed: ResearchStrategy[] = prev ? JSON.parse(prev) : [];
+  feed.unshift(s);
+  if (feed.length > STRATEGY_MAX) feed.splice(STRATEGY_MAX);
+  await kv.put(key, JSON.stringify(feed));
+}
+
+export async function kvGetStrategies(
+  kv: any,
+  category?: string,
+  agentId?: string,
+  limit = 10,
+): Promise<ResearchStrategy[]> {
+  const val = await kv.get(KV.strategyLatest());
+  if (!val) return [];
+  let feed: ResearchStrategy[] = JSON.parse(val);
+  if (category) feed = feed.filter(s => s.category === category);
+  if (agentId)  feed = feed.filter(s => s.agentId.toLowerCase() === agentId.toLowerCase());
+  // Sort by endorsement count DESC, then publishedAt DESC
+  feed.sort((a, b) => (b.endorsements.length - a.endorsements.length) || (b.publishedAt - a.publishedAt));
+  return feed.slice(0, limit);
+}
+
+// ─── Insight fetcher ──────────────────────────────────────────────────────────
+
+/** Fetch and parse an Insight JSON from calldata. Returns null on any error. */
+export async function fetchInsight(txHash: string, rpcUrl: string): Promise<Insight | null> {
+  try {
+    const res = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getTransactionByHash', params: [txHash], id: 1 }),
+    });
+    const json = await res.json() as { result?: { input?: string } };
+    const input = json.result?.input;
+    if (!input || input === '0x') return null;
+
+    // HYTE TAR format: strip 9-byte header, decompress, extract files
+    // For simplicity: just try to extract the JSON from the calldata directly
+    // The insight is stored as insight.json inside a TAR-packed HYTE payload.
+    // Rather than implementing a full TAR extractor here, delegate to the gateway HTTP endpoint.
+    // This function is used for deep traversal; most reads go through KV summaries.
+    return null; // caller should use fetch_hybertext_site MCP tool for full content
+  } catch {
+    return null;
+  }
+}
+
+// ─── Formatter ────────────────────────────────────────────────────────────────
+
+export function formatInsightSummary(s: InsightSummary): string {
+  const lines = [
+    `[${s.txHash.slice(0, 10)}...] ${s.title}`,
+    `  agent:     ${s.agentId}`,
+    `  topics:    ${s.topics.join(', ')}`,
+    `  citations: ${s.citations.length} | cited by: ${s.citedByCount}`,
+    `  published: ${new Date(s.publishedAt * 1000).toISOString()}`,
+    `  ${s.summary}`,
+  ];
+  return lines.join('\n');
+}
+
+export function formatStrategy(s: ResearchStrategy): string {
+  const lines = [
+    `[${s.category}] ${s.title}  (${s.endorsements.length} endorsements)`,
+    `  agent: ${s.agentId}`,
+    `  ${s.content}`,
+  ];
+  if (s.impact) lines.push(`  impact: ${s.impact}`);
+  return lines.join('\n');
+}
+
+export function formatClaim(c: DirectionClaim): string {
+  const remaining = Math.max(0, c.expiresAt - Math.floor(Date.now() / 1000));
+  const hm = `${Math.floor(remaining / 3600)}h${Math.floor((remaining % 3600) / 60)}m`;
+  return `  ${c.agentId}  confidence: ${(c.intentConfidence * 100).toFixed(0)}%  expires in: ${hm}\n  "${c.description}"`;
+}

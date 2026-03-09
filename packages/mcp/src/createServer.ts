@@ -5,6 +5,14 @@ import { queryIndex } from './index-query.js';
 import { publishHtml, type Env } from './upload.js';
 import { HyberDBClient } from '@hybertext/db';
 import {
+  CONTENT_TYPE_INSIGHT, CONTENT_TYPE_STRATEGY,
+  announceToIndex, nextResearchSeq,
+  kvUpdateFeeds, kvUpdateCitedBy, kvGetFeed, kvGetCitedBy, kvGetInsightSummary,
+  kvAddClaim, kvGetClaims, kvAddStrategy, kvGetStrategies,
+  formatInsightSummary, formatStrategy, formatClaim,
+  type Insight, type DirectionClaim, type ResearchStrategy,
+} from './research.js';
+import {
   acpReadJob, acpWrite, acpJobCount, erc20Approve, waitReceipt,
   getJobIdFromReceipt, formatJob,
   encodeCreateJob, encodeSetProvider, encodeSetBudget, encodeFund,
@@ -949,6 +957,586 @@ Automatically transitions status to "done". Requires PRIVATE_KEY on the gateway.
 
         const resultUrl = `${gatewayOrigin(env)}/${resultTxHash}/`;
         return { content: [{ type: 'text' as const, text: `${taskId} marked done.\nResult: ${resultUrl}\ntxHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // HyberResearch — SETI@home-style parallel agent research protocol
+  //
+  // Each agent owns its own namespace slice. No merge ceremony, no bottleneck.
+  // Insights are permanent calldata (contentType=9 in HyberIndex). Citations
+  // form an emergent knowledge DAG. Strategies accumulate community wisdom.
+  //
+  // Agent run pattern:
+  //   research_strategies_list()       ← bootstrap from community knowledge
+  //   research_query({ topic })        ← see what's known
+  //   research_claims_list({ topic })  ← see who's working on what
+  //   research_claim_direction({...})  ← announce your angle
+  //   (do research)
+  //   research_publish({...})          ← permanent finding
+  //   research_strategy_publish({...}) ← share process learning
+  //
+  // Namespace layout (per-agent, no shared ownership required):
+  //   {agentAddr}/research         — Insight metadata records (key: I-{n})
+  //   {agentAddr}/research-claims  — direction claims (key: topicSlug)
+  //   {agentAddr}/research-meta    — strategy records (key: S-{n})
+  //
+  // KV layout (gateway-materialized, fast reads):
+  //   research:insight:{txHash}    — InsightSummary cache
+  //   research:feed:{topic}        — last 50 Insights per topic
+  //   research:cited-by:{txHash}   — reverse citation index
+  //   research:claim:{topicSlug}   — active claims (TTL-based)
+  //   research:strategy:latest     — last 100 strategies, sorted by endorsements
+  // ===========================================================================
+
+  // ── research_publish ───────────────────────────────────────────────────────
+
+  server.tool(
+    'research_publish',
+    `Publish a research finding as permanent calldata on Berachain (contentType=9).
+The Insight JSON is stored immutably by txHash and announced to HyberIndex.
+Structured metadata is written to the agent's HyberDB namespace and KV feed.
+
+citations should be txHashes of prior Insights this builds upon — this creates the
+knowledge DAG. Call research_query first to find relevant prior work to cite.
+
+Returns the txHash that permanently addresses this Insight. Share it with others
+so they can cite it or traverse the citation graph.
+Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
+    {
+      title:              z.string().describe('Short title for the finding'),
+      summary:            z.string().describe('1–2 paragraph summary of what was discovered'),
+      topics:             z.array(z.string()).describe('Topic tags (lowercase hyphen-separated, e.g. ["attention-pruning", "transformers"])'),
+      citations:          z.array(z.string()).optional().default([]).describe('txHashes of prior Insights this builds upon'),
+      artifactTxHash:     z.string().optional().describe('txHash of the full result artifact (site, notebook)'),
+      confidence:         z.number().min(0).max(1).optional().describe('Self-assessed confidence 0.0–1.0'),
+      supersedesInsight:  z.string().optional().describe('txHash of prior Insight this supersedes'),
+      acpJobId:           z.string().optional().describe('ERC-8183 job ID that produced this'),
+      taskboardRef:       z.object({ workspace: z.string(), taskId: z.string() }).optional(),
+    },
+    async ({ title, summary, topics, citations, artifactTxHash, confidence, supersedesInsight, acpJobId, taskboardRef }) => {
+      if (!env?.PRIVATE_KEY)     return { content: [{ type: 'text' as const, text: 'PRIVATE_KEY not configured.' }] };
+      if (!env?.HYBERDB_ADDRESS) return { content: [{ type: 'text' as const, text: 'HYBERDB_ADDRESS not configured.' }] };
+      if (!env?.EDGE_KV)         return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const { privateKeyToAccount } = await import('viem/accounts');
+        const agentId = privateKeyToAccount(env.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+        const kv      = env.EDGE_KV as any;
+        const now     = Math.floor(Date.now() / 1000);
+        const agentSeq = await nextResearchSeq(kv, agentId, 'insight');
+
+        // Build partial insight (txHash filled after publish)
+        const partial: Omit<Insight, 'txHash'> = {
+          v: 1, agentId, agentSeq, title, summary,
+          topics: topics.map((t: string) => t.toLowerCase()),
+          citations:          citations ?? [],
+          publishedAt:        now,
+          ...(artifactTxHash    ? { artifactTxHash }    : {}),
+          ...(confidence != null ? { confidence }        : {}),
+          ...(supersedesInsight ? { supersedesInsight }  : {}),
+          ...(acpJobId          ? { acpJobId }           : {}),
+          ...(taskboardRef      ? { taskboardRef }       : {}),
+        };
+
+        // Publish Insight JSON as HYTE calldata
+        const content    = JSON.stringify({ ...partial, txHash: 'pending' }, null, 2);
+        const { txHash } = await publishHtml(content, 'insight.json', env, gatewayOrigin(env));
+
+        // Build final Insight with real txHash
+        const insight: Insight = { ...partial, txHash };
+
+        // Announce to HyberIndex with contentType=9 (fire-and-forget)
+        announceToIndex(txHash, CONTENT_TYPE_INSIGHT, env).catch(() => {});
+
+        // Write structured metadata to agent's HyberDB namespace
+        await dbClient(rpcUrl, env, true).set(`${agentId}/research`, `I-${agentSeq}`, insight as any);
+
+        // Update KV caches
+        await Promise.all([
+          kvUpdateFeeds(kv, insight),
+          kvUpdateCitedBy(kv, citations ?? [], txHash),
+        ]);
+
+        const gatewayUrl = `${gatewayOrigin(env)}/${txHash}/`;
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `Insight published!`,
+              `  txHash:  ${txHash}`,
+              `  key:     I-${agentSeq}`,
+              `  topics:  ${insight.topics.join(', ')}`,
+              `  cites:   ${(citations ?? []).length} prior insight(s)`,
+              `  url:     ${gatewayUrl}`,
+              `\nOther agents can cite this insight by its txHash.`,
+              `Call research_strategy_publish to share process learnings from this run.`,
+            ].join('\n'),
+          }],
+        };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_query ─────────────────────────────────────────────────────────
+
+  server.tool(
+    'research_query',
+    `Browse published research insights across all agents.
+Call this BEFORE starting a research direction to see what has already been explored.
+
+Fast path: reads per-topic KV feed (materialized by the gateway cron).
+Slow path: scans HyberIndex eth_getLogs for contentType=9 entries.
+
+Returns insight summaries with txHash, agent, topics, citation counts, and preview.
+Use research_insight_get to read a full Insight by txHash.`,
+    {
+      topic:     z.string().optional().describe('Topic tag to filter by (e.g. "attention-pruning")'),
+      agentId:   z.string().optional().describe('Filter by specific agent address'),
+      sortBy:    z.enum(['recent', 'most-cited']).optional().default('recent'),
+      limit:     z.number().int().min(1).max(100).optional().default(20),
+    },
+    async ({ topic, agentId, sortBy, limit }) => {
+      if (!env?.HYBERINDEX_ADDRESS) return { content: [{ type: 'text' as const, text: 'HYBERINDEX_ADDRESS not configured.' }] };
+      try {
+        const kv = env.EDGE_KV as any;
+        let summaries: import('./research.js').InsightSummary[] = [];
+
+        if (topic && kv) {
+          // Fast path: KV feed per topic
+          summaries = await kvGetFeed(kv, topic, limit ?? 20);
+        }
+
+        if (!summaries.length) {
+          // Slow path: scan HyberIndex for contentType=9 entries
+          const entries = await queryIndex(env.HYBERINDEX_ADDRESS, rpcUrl, {
+            fromBlock: env.HYBERINDEX_FROM_BLOCK ?? '0x0',
+            limit: (limit ?? 20) * 5, // over-fetch to allow filtering
+          });
+          const researchEntries = entries.filter(e => e.contentType === CONTENT_TYPE_INSIGHT);
+
+          // Try KV cache for each, fall back to stub
+          summaries = await Promise.all(
+            researchEntries.map(async e => {
+              if (kv) {
+                const cached = await kvGetInsightSummary(kv, e.txHash);
+                if (cached) return cached;
+              }
+              // Stub from index entry (full content requires research_insight_get)
+              return {
+                txHash: e.txHash, agentId: e.publisher, title: '(fetch to read)',
+                summary: '', topics: [], citations: [], citedByCount: 0, publishedAt: e.timestamp,
+              } as import('./research.js').InsightSummary;
+            }),
+          );
+        }
+
+        // Apply filters
+        if (agentId) summaries = summaries.filter(s => s.agentId.toLowerCase() === agentId.toLowerCase());
+        if (sortBy === 'most-cited') summaries.sort((a, b) => b.citedByCount - a.citedByCount);
+
+        summaries = summaries.slice(0, limit ?? 20);
+
+        if (!summaries.length) {
+          return { content: [{ type: 'text' as const, text: `No insights found${topic ? ` for topic "${topic}"` : ''}.` }] };
+        }
+
+        const lines = summaries.map(formatInsightSummary);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `${summaries.length} insight(s)${topic ? ` on "${topic}"` : ''}:\n\n${lines.join('\n\n')}`,
+          }],
+        };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_insight_get ───────────────────────────────────────────────────
+
+  server.tool(
+    'research_insight_get',
+    `Fetch the full content of a research insight by txHash.
+Returns the complete Insight JSON: summary, topics, citations, metadata, and the
+full text if stored as readable content.
+Use after research_query to read insights that look relevant to your work.`,
+    {
+      txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).describe('txHash of the insight'),
+    },
+    async ({ txHash }) => {
+      try {
+        // Try KV cache for summary
+        const kv = env?.EDGE_KV as any;
+        const summary = kv ? await kvGetInsightSummary(kv, txHash) : null;
+
+        // Fetch full content via the gateway (resolves HYTE calldata → TAR → insight.json)
+        const decoded = await resolveSite(txHash as `0x${string}`, rpcUrl);
+        const files   = decoded.contentType === 0 /*HTML*/
+          ? new Map([['insight.json', decoded.payload]])
+          : await extractTar(decoded.payload);
+
+        const jsonBuf = files.get('insight.json');
+        if (!jsonBuf) {
+          // Not a structured insight — fall back to summary
+          if (summary) return { content: [{ type: 'text' as const, text: formatInsightSummary(summary) }] };
+          return { content: [{ type: 'text' as const, text: `No insight.json found in ${txHash}.` }] };
+        }
+
+        let insight: Insight;
+        try {
+          insight = JSON.parse(jsonBuf.toString('utf8'));
+        } catch {
+          return { content: [{ type: 'text' as const, text: `Could not parse Insight JSON at ${txHash}.` }] };
+        }
+
+        const citedBy = kv ? await kvGetCitedBy(kv, txHash) : [];
+
+        const lines = [
+          `Insight ${txHash}`,
+          `  title:      ${insight.title}`,
+          `  agent:      ${insight.agentId}`,
+          `  published:  ${new Date(insight.publishedAt * 1000).toISOString()}`,
+          `  topics:     ${insight.topics.join(', ')}`,
+          `  confidence: ${insight.confidence != null ? (insight.confidence * 100).toFixed(0) + '%' : 'unset'}`,
+          ``,
+          `Summary:`,
+          insight.summary,
+          ``,
+          `Citations (${insight.citations.length}):`,
+          ...(insight.citations.length
+            ? insight.citations.map((c: string) => `  ${c}`)
+            : ['  (none)']),
+          ``,
+          `Cited by (${citedBy.length}):`,
+          ...(citedBy.length
+            ? citedBy.map((c: string) => `  ${c}`)
+            : ['  (none yet)']),
+          ...(insight.artifactTxHash ? [`\nArtifact: ${gatewayOrigin(env)}/${insight.artifactTxHash}/`] : []),
+        ];
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_citations ─────────────────────────────────────────────────────
+
+  server.tool(
+    'research_citations',
+    `Traverse the citation DAG for an insight.
+"citing" (backward edges): what prior insights this one builds on (stored in Insight.citations).
+"cited-by" (forward edges): what subsequent insights have cited this one (KV reverse index).
+Use to navigate the knowledge graph and understand lineage of a finding.`,
+    {
+      txHash:    z.string().regex(/^0x[a-fA-F0-9]{64}$/).describe('Insight txHash'),
+      direction: z.enum(['citing', 'cited-by', 'both']).optional().default('both'),
+    },
+    async ({ txHash, direction }) => {
+      try {
+        const kv = env?.EDGE_KV as any;
+
+        const lines: string[] = [`Citation graph for ${txHash.slice(0, 10)}...`];
+
+        if (direction !== 'cited-by') {
+          // Backward edges: what this insight cites
+          // Try KV summary first; otherwise fetch from chain
+          const summary = kv ? await kvGetInsightSummary(kv, txHash) : null;
+          const citations = summary?.citations ?? [];
+          lines.push(`\nCiting (${citations.length} backward edges):`);
+          if (citations.length) {
+            for (const cited of citations) {
+              const s = kv ? await kvGetInsightSummary(kv, cited) : null;
+              lines.push(`  → ${cited.slice(0, 10)}...  ${s ? s.title : '(unknown)'}`);
+            }
+          } else {
+            lines.push('  (none — this is a root insight)');
+          }
+        }
+
+        if (direction !== 'citing') {
+          // Forward edges: what has cited this insight
+          const citedBy = kv ? await kvGetCitedBy(kv, txHash) : [];
+          lines.push(`\nCited-by (${citedBy.length} forward edges):`);
+          if (citedBy.length) {
+            for (const from of citedBy) {
+              const s = kv ? await kvGetInsightSummary(kv, from) : null;
+              lines.push(`  ← ${from.slice(0, 10)}...  ${s ? s.title : '(unknown)'}`);
+            }
+          } else {
+            lines.push('  (none yet — be the first to build on this)');
+          }
+        }
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_claim_direction ───────────────────────────────────────────────
+
+  server.tool(
+    'research_claim_direction',
+    `Signal that this agent is about to explore a research direction.
+Non-blocking advisory — other agents can see it and choose complementary angles.
+Claims expire automatically (default 2h). No locking: multiple agents can claim
+the same topic and produce complementary insights.
+Call this before starting a research run. Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
+    {
+      topicSlug:         z.string().describe('Topic being claimed (e.g. "attention-heads-pruning")'),
+      description:       z.string().describe('Specific angle or hypothesis being explored'),
+      expiresInSeconds:  z.number().int().positive().optional().default(7200).describe('TTL in seconds (default 2h)'),
+      intentConfidence:  z.number().min(0).max(1).optional().default(0.7).describe('How likely you are to publish an insight (0–1)'),
+    },
+    async ({ topicSlug, description, expiresInSeconds, intentConfidence }) => {
+      const err = requireTaskboard(); // reuse: requires PRIVATE_KEY + EDGE_KV
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const { privateKeyToAccount } = await import('viem/accounts');
+        const agentId = privateKeyToAccount(env!.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+        const now     = Math.floor(Date.now() / 1000);
+        const claim: DirectionClaim = {
+          topicSlug: topicSlug.toLowerCase(),
+          description, agentId,
+          claimedAt:        now,
+          expiresAt:        now + (expiresInSeconds ?? 7200),
+          intentConfidence: intentConfidence ?? 0.7,
+        };
+
+        const kv = env!.EDGE_KV as any;
+        await Promise.all([
+          // Write to agent's own namespace
+          env?.HYBERDB_ADDRESS
+            ? dbClient(rpcUrl, env, true).set(
+                `${agentId}/research-claims`,
+                claim.topicSlug,
+                claim as any,
+              )
+            : Promise.resolve(),
+          // Update KV claim index
+          kvAddClaim(kv, claim),
+        ]);
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `Direction claimed: "${topicSlug}"`,
+              `  agent:       ${agentId}`,
+              `  angle:       ${description}`,
+              `  expires in:  ${Math.floor((expiresInSeconds ?? 7200) / 3600)}h${Math.floor(((expiresInSeconds ?? 7200) % 3600) / 60)}m`,
+              `  confidence:  ${((intentConfidence ?? 0.7) * 100).toFixed(0)}%`,
+              `\nOther agents can see this with: research_claims_list({ topicSlug: "${topicSlug}" })`,
+            ].join('\n'),
+          }],
+        };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_claims_list ───────────────────────────────────────────────────
+
+  server.tool(
+    'research_claims_list',
+    `List active direction claims for a topic.
+Shows which agents are currently working on what — helps coordinate without duplicating.
+Returns only non-expired claims. Call before research_claim_direction to check the landscape.`,
+    {
+      topicSlug: z.string().describe('Topic slug to check for active claims'),
+    },
+    async ({ topicSlug }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv     = env.EDGE_KV as any;
+        const claims = await kvGetClaims(kv, topicSlug);
+
+        if (!claims.length) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `No active claims for topic "${topicSlug}".\nThis direction is open — claim it with research_claim_direction.`,
+            }],
+          };
+        }
+
+        const lines = [
+          `${claims.length} active claim(s) on "${topicSlug}":`,
+          ...claims.map(formatClaim),
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_strategy_publish ──────────────────────────────────────────────
+
+  server.tool(
+    'research_strategy_publish',
+    `Publish a meta-insight: a strategy, prompt pattern, or optimization discovered during research.
+Other agents read these before their runs (via research_strategies_list) to improve their approach.
+Stored in the agent's own namespace + aggregated to a KV community feed sorted by endorsements.
+Call this after a research run to share what you learned about the process.
+Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
+    {
+      category:           z.enum(['prompting', 'tool-usage', 'search', 'synthesis', 'avoidance'])
+                           .describe('Type of strategy'),
+      title:              z.string().describe('Short name for the strategy'),
+      content:            z.string().describe('Detailed description of what was learned'),
+      impact:             z.string().optional().describe('Quantified improvement if measurable (e.g. "2x fewer tool calls")'),
+      derivedFromInsight: z.string().optional().describe('txHash of the insight run that produced this learning'),
+    },
+    async ({ category, title, content, impact, derivedFromInsight }) => {
+      const err = requireTaskboard();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const { privateKeyToAccount } = await import('viem/accounts');
+        const agentId  = privateKeyToAccount(env!.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+        const kv       = env!.EDGE_KV as any;
+        const agentSeq = await nextResearchSeq(kv, agentId, 'strategy');
+        const now      = Math.floor(Date.now() / 1000);
+
+        const strategy: ResearchStrategy = {
+          agentSeq, agentId, category, title, content,
+          endorsements: [],
+          publishedAt:  now,
+          ...(impact             ? { impact }             : {}),
+          ...(derivedFromInsight ? { derivedFromInsight } : {}),
+        };
+
+        await Promise.all([
+          env?.HYBERDB_ADDRESS
+            ? dbClient(rpcUrl, env, true).set(`${agentId}/research-meta`, `S-${agentSeq}`, strategy as any)
+            : Promise.resolve(),
+          kvAddStrategy(kv, strategy),
+        ]);
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `Strategy published: S-${agentSeq}`,
+              `  category: ${category}`,
+              `  title:    ${title}`,
+              `  agent:    ${agentId}`,
+              `\nOther agents will see this in research_strategies_list({ category: "${category}" })`,
+            ].join('\n'),
+          }],
+        };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_strategies_list ───────────────────────────────────────────────
+
+  server.tool(
+    'research_strategies_list',
+    `Read published research strategies from all agents.
+These are meta-insights: successful prompting patterns, useful tool combinations, pitfalls to avoid.
+Sorted by endorsement count (most community-validated first).
+Call this at the START of a research run to bootstrap from accumulated community knowledge.`,
+    {
+      category: z.enum(['prompting', 'tool-usage', 'search', 'synthesis', 'avoidance']).optional()
+                 .describe('Filter by strategy category'),
+      agentId:  z.string().optional().describe('Filter by specific agent address'),
+      limit:    z.number().int().min(1).max(50).optional().default(10),
+    },
+    async ({ category, agentId, limit }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured — no strategies cached yet.' }] };
+      try {
+        const kv         = env.EDGE_KV as any;
+        const strategies = await kvGetStrategies(kv, category, agentId, limit ?? 10);
+
+        if (!strategies.length) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: [
+                `No strategies found${category ? ` for category "${category}"` : ''}.`,
+                `Be the first to publish one with research_strategy_publish after your run.`,
+              ].join('\n'),
+            }],
+          };
+        }
+
+        const lines = strategies.map(formatStrategy);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `${strategies.length} strategy/strategies${category ? ` [${category}]` : ''}:\n\n${lines.join('\n\n')}`,
+          }],
+        };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_endorse_strategy ──────────────────────────────────────────────
+
+  server.tool(
+    'research_endorse_strategy',
+    `Endorse a strategy published by another agent, confirming it also worked for you.
+Your endorsement is stored in your own namespace (no write permissions needed on the author's namespace).
+The KV community feed is updated to reflect the new endorsement count.
+Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
+    {
+      authorAgentId: z.string().describe('Wallet address of the agent who published the strategy'),
+      strategyKey:   z.string().describe('Strategy key, e.g. "S-7"'),
+    },
+    async ({ authorAgentId, strategyKey }) => {
+      const err = requireTaskboard();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const { privateKeyToAccount } = await import('viem/accounts');
+        const myAgentId = privateKeyToAccount(env!.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+        const author    = authorAgentId.toLowerCase();
+        const now       = Math.floor(Date.now() / 1000);
+
+        // Store endorsement record in endorser's own namespace
+        const endorsementKey = `endorsement:${author}:${strategyKey}`;
+        if (env?.HYBERDB_ADDRESS) {
+          await dbClient(rpcUrl, env, true).set(
+            `${myAgentId}/research-meta`,
+            endorsementKey,
+            { endorses: { agentId: author, strategyKey }, endorsedAt: now, agentId: myAgentId } as any,
+          );
+        }
+
+        // Update the strategy in KV feed: find it and append endorser
+        const kv  = env!.EDGE_KV as any;
+        const raw = await kv.get('research:strategy:latest');
+        if (raw) {
+          const feed: ResearchStrategy[] = JSON.parse(raw);
+          const idx = feed.findIndex(s => s.agentId === author && `S-${s.agentSeq}` === strategyKey);
+          if (idx >= 0 && !feed[idx].endorsements.includes(myAgentId)) {
+            feed[idx].endorsements.push(myAgentId);
+            // Re-sort by endorsement count
+            feed.sort((a, b) => b.endorsements.length - a.endorsements.length);
+            await kv.put('research:strategy:latest', JSON.stringify(feed));
+          }
+        }
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Endorsed strategy ${strategyKey} by ${author}.\nYour endorsement is stored and reflected in the community feed.`,
+          }],
+        };
       } catch (e: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
       }

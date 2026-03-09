@@ -797,6 +797,47 @@ export default {
         warmDbCache(env.EDGE_KV as any, rpc, env.HYBERDB_ADDRESS),
       );
     }
+
+    // Warm research feeds: scan HyberIndex for contentType=9 (Insights) and
+    // contentType=10 (Strategies) published since the last cron run, and
+    // populate per-topic KV feeds + reverse citation index.
+    if (env.EDGE_KV && env.HYBERINDEX_ADDRESS &&
+        env.HYBERINDEX_ADDRESS !== '0x0000000000000000000000000000000000000000') {
+      ctx.waitUntil((async () => {
+        try {
+          const { queryIndex }      = await import('./index-query.js');
+          const { kvUpdateFeeds, kvUpdateCitedBy, kvGetInsightSummary,
+                  CONTENT_TYPE_INSIGHT } = await import('./research.js');
+          const kv          = env.EDGE_KV as any;
+          const fromBlock   = env.HYBERINDEX_FROM_BLOCK ?? '0x0';
+          const allEntries  = await queryIndex(env.HYBERINDEX_ADDRESS!, rpc, {
+            fromBlock, limit: 200,
+          });
+          const insights = allEntries.filter(e => e.contentType === CONTENT_TYPE_INSIGHT);
+
+          for (const entry of insights) {
+            // Skip if already cached
+            const cached = await kvGetInsightSummary(kv, entry.txHash);
+            if (cached) continue;
+
+            // Fetch the Insight JSON from the gateway HTTP endpoint
+            const gatewayBase = env.BASE_DOMAIN
+              ? `https://${env.BASE_DOMAIN}`
+              : 'https://hybertext-mcp.carnation-903.workers.dev';
+            const res = await fetch(`${gatewayBase}/${entry.txHash}/insight.json`);
+            if (!res.ok) continue;
+            let insight: any;
+            try { insight = await res.json(); } catch { continue; }
+            if (insight?.v !== 1 || !insight.topics) continue;
+
+            await kvUpdateFeeds(kv, insight);
+            if (insight.citations?.length) {
+              await kvUpdateCitedBy(kv, insight.citations, entry.txHash);
+            }
+          }
+        } catch { /* non-fatal */ }
+      })());
+    }
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
