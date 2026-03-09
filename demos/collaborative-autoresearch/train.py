@@ -25,7 +25,7 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = 160       # testing on MPS: extended sweep
+    sequence_len: int = 160       # best on MPS: beats 64/96/128/192
     n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
@@ -137,7 +137,7 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 16
-    lr          = 1e-2
+    lr          = 1.5e-2  # best lr found on MPS (1e-2 avg 2.378, 1.5e-2 avg 2.287)
 
     # Data
     train_data, val_data = prepare_data()
