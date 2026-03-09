@@ -190,6 +190,7 @@ export interface Env {
    *  Set to the block HyberIndex was deployed at to avoid scanning from genesis. */
   HYBERINDEX_FROM_BLOCK?:  string;
   // Vault / encrypted sites
+  ACP_ADDRESS?:            string;   // HyberACP contract address (ERC-8183)
   VAULT_ADDRESS?:          string;   // HyberKeyVault contract address
   VAULT_X25519_PUBKEY?:    string;   // 32-byte hex — exposed via GET /vault/pubkey
   VAULT_X25519_PRIVKEY?:   string;   // 32-byte hex secret — never exposed

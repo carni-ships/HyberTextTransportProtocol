@@ -4,6 +4,14 @@ import { resolveSite, extractTar, ContentType } from './resolver.js';
 import { queryIndex } from './index-query.js';
 import { publishHtml, type Env } from './upload.js';
 import { HyberDBClient } from '@hybertext/db';
+import {
+  acpReadJob, acpWrite, acpJobCount, erc20Approve, waitReceipt,
+  getJobIdFromReceipt, formatJob,
+  encodeCreateJob, encodeSetProvider, encodeSetBudget, encodeFund,
+  encodeSubmit, encodeComplete, encodeReject, encodeClaimRefund,
+  ZERO_ADDRESS,
+  type ACPJobMeta,
+} from './acp.js';
 
 const TEXT_EXTENSIONS = /\.(html|htm|css|js|mjs|json|txt|md|svg|xml)$/i;
 const MAX_FILE_BYTES  = 50 * 1024;
@@ -941,6 +949,450 @@ Automatically transitions status to "done". Requires PRIVATE_KEY on the gateway.
 
         const resultUrl = `${gatewayOrigin(env)}/${resultTxHash}/`;
         return { content: [{ type: 'text' as const, text: `${taskId} marked done.\nResult: ${resultUrl}\ntxHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // ERC-8183 — Agentic Commerce Protocol (job_ tools)
+  //
+  // Dual-write architecture:
+  //   HyberACP contract  — authoritative state, escrow, payment
+  //   HyberDB            — rich metadata (title, labels, priority, comments)
+  //   KV cache           — fast job listing (key: acp:{workspace}:{jobId})
+  //
+  // All write tools require ACP_ADDRESS + PRIVATE_KEY.
+  // ===========================================================================
+
+  function requireAcp(): string | null {
+    if (!env?.ACP_ADDRESS)  return 'ACP_ADDRESS not configured — deploy HyberACP.sol first.';
+    if (!env?.PRIVATE_KEY)  return 'PRIVATE_KEY not configured — ACP writes disabled.';
+    return null;
+  }
+
+  async function jobMeta(workspace: string, jobId: string): Promise<ACPJobMeta | null> {
+    if (!env?.HYBERDB_ADDRESS) return null;
+    try {
+      const val = await dbClient(rpcUrl, env).get(`${workspace}/jobs`, `J-${jobId}`);
+      return val ? (val as unknown as ACPJobMeta) : null;
+    } catch { return null; }
+  }
+
+  async function kvJobCacheSet(workspace: string, jobId: string, status: string, title: string): Promise<void> {
+    const kv = env?.EDGE_KV as any;
+    if (!kv) return;
+    try {
+      await kv.put(`acp:${workspace}:${jobId}`, JSON.stringify({ status, title, updatedAt: Math.floor(Date.now() / 1000) }));
+    } catch { /* non-critical */ }
+  }
+
+  // ── job_create ─────────────────────────────────────────────────────────────
+
+  server.tool(
+    'job_create',
+    `Create an ERC-8183 job on Berachain with optional ERC-20 escrow.
+Stores rich metadata (title, labels, priority) in HyberDB alongside the on-chain record.
+evaluator defaults to the gateway wallet if not specified.
+token + budget are required for paid jobs; omit (or set to zero/empty) for unpaid coordination jobs.
+Requires ACP_ADDRESS + PRIVATE_KEY + HYBERDB_ADDRESS.`,
+    {
+      workspace:   z.string().describe('Workspace slug, e.g. "my-team"'),
+      project:     z.string().describe('Project id slug'),
+      title:       z.string().describe('Human-readable job title (stored in HyberDB)'),
+      description: z.string().optional().default('').describe('Job spec — stored on-chain (inline or hyte:0x{txhash} ref)'),
+      provider:    z.string().optional().describe('Provider wallet address; omit = open (any provider may claim)'),
+      evaluator:   z.string().optional().describe('Evaluator address; defaults to gateway wallet'),
+      token:       z.string().optional().describe('ERC-20 token address for payment; omit = unpaid'),
+      budget:      z.string().optional().default('0').describe('Token amount in base units (decimal string)'),
+      expiredAt:   z.number().int().optional().default(0).describe('Unix timestamp deadline; 0 = no expiry'),
+      hook:        z.string().optional().describe('IACPHook contract address; omit = no hooks'),
+      priority:    z.enum(['urgent', 'high', 'medium', 'low']).optional().default('medium'),
+      labels:      z.array(z.string()).optional().default([]),
+    },
+    async ({ workspace, project, title, description, provider, evaluator, token, budget, expiredAt, hook, priority, labels }) => {
+      const err = requireAcp();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const { privateKeyToAccount } = await import('viem/accounts');
+        const gwAddr = privateKeyToAccount(env!.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+
+        const calldata = encodeCreateJob(
+          provider  ?? ZERO_ADDRESS,
+          evaluator ?? ZERO_ADDRESS,     // contract defaults to msg.sender
+          token     ?? ZERO_ADDRESS,
+          BigInt(budget ?? '0'),
+          expiredAt ?? 0,
+          description || title,
+          hook ?? ZERO_ADDRESS,
+        );
+
+        const txHash = await acpWrite(env!, calldata);
+
+        // Extract jobId from JobCreated event
+        const jobId = await getJobIdFromReceipt(
+          env!.BERACHAIN_RPC ?? 'https://rpc.berachain.com',
+          txHash,
+          env!.ACP_ADDRESS!,
+        ) ?? '?';
+
+        const now = Math.floor(Date.now() / 1000);
+        const meta: ACPJobMeta = {
+          jobId, title, workspace, project,
+          priority: priority ?? 'medium',
+          labels:   labels   ?? [],
+          deliverable: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        if (env?.HYBERDB_ADDRESS) {
+          await dbClient(rpcUrl, env, true).set(`${workspace}/jobs`, `J-${jobId}`, meta as any);
+        }
+
+        await kvJobCacheSet(workspace, jobId, 'open', title);
+
+        return { content: [{ type: 'text' as const, text: `Job created!\n  jobId:  J-${jobId}\n  status: OPEN\n  txHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_get ────────────────────────────────────────────────────────────────
+
+  server.tool(
+    'job_get',
+    `Get an ERC-8183 job by ID. Merges on-chain state with HyberDB metadata and comments.
+jobId is the numeric job ID returned by job_create (e.g. "1", "42").`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      jobId:     z.string().describe('Job ID (numeric, e.g. "1")'),
+    },
+    async ({ workspace, jobId }) => {
+      if (!env?.ACP_ADDRESS) return { content: [{ type: 'text' as const, text: 'ACP_ADDRESS not configured.' }] };
+      try {
+        const [job, meta] = await Promise.all([
+          acpReadJob(Number(jobId), rpcUrl, env.ACP_ADDRESS),
+          jobMeta(workspace, jobId),
+        ]);
+        if (!job) return { content: [{ type: 'text' as const, text: `Job J-${jobId} not found.` }] };
+
+        const lines = [formatJob(job, meta ?? undefined)];
+
+        if (env?.HYBERDB_ADDRESS) {
+          const comments = await dbClient(rpcUrl, env).getAll(`${workspace}/comments`, {
+            where: { taskId: `J-${jobId}` } as any, orderBy: 'createdAt', orderDir: 'asc',
+          });
+          if (comments.records.length) {
+            lines.push('\nComments:');
+            for (const { val: v } of comments.records) {
+              const c = v as any;
+              lines.push(`  [${c.id}] ${c.author ?? 'anon'} @ ${new Date(c.createdAt * 1000).toISOString()}\n  ${c.body}`);
+            }
+          }
+        }
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_list ───────────────────────────────────────────────────────────────
+
+  server.tool(
+    'job_list',
+    `List ERC-8183 jobs in a workspace. Reads from HyberDB metadata with optional filters.
+On-chain status is authoritative — job_get returns live status; job_list uses cached metadata.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      project:   z.string().optional().describe('Filter by project id'),
+      status:    z.enum(['open', 'funded', 'submitted', 'completed', 'rejected', 'expired']).optional(),
+      limit:     z.number().int().positive().max(100).optional().default(25),
+    },
+    async ({ workspace, project, status, limit }) => {
+      if (!env?.HYBERDB_ADDRESS) return { content: [{ type: 'text' as const, text: 'HyberDB not configured.' }] };
+      if (!env?.ACP_ADDRESS)     return { content: [{ type: 'text' as const, text: 'ACP_ADDRESS not configured.' }] };
+      try {
+        const where: Record<string, unknown> = {};
+        if (project) where.project = project;
+
+        const result = await dbClient(rpcUrl, env).getAll(`${workspace}/jobs`, {
+          where:    Object.keys(where).length ? where as any : undefined,
+          orderBy:  'updatedAt',
+          orderDir: 'desc',
+          limit:    limit ?? 25,
+        });
+
+        if (!result.records.length) return { content: [{ type: 'text' as const, text: 'No jobs found.' }] };
+
+        // Optionally fetch on-chain status for each job to filter by status
+        let records = result.records;
+        if (status) {
+          const withStatus = await Promise.all(
+            records.map(async ({ val }) => {
+              const meta = val as unknown as ACPJobMeta;
+              const job = await acpReadJob(Number(meta.jobId), rpcUrl, env!.ACP_ADDRESS!);
+              return job?.status === status ? { val, job } : null;
+            }),
+          );
+          const filtered = withStatus.filter(Boolean) as { val: any; job: any }[];
+          const lines = filtered.map(({ val, job }) => formatJob(job, val as unknown as ACPJobMeta));
+          return { content: [{ type: 'text' as const, text: `${filtered.length} job(s):\n\n${lines.join('\n\n')}` }] };
+        }
+
+        const lines = records.map(({ val }) => {
+          const meta = val as unknown as ACPJobMeta;
+          return `[J-${meta.jobId}] ${meta.title}  project: ${meta.project}  priority: ${meta.priority}`;
+        });
+        return { content: [{ type: 'text' as const, text: `${result.total} job(s):\n\n${lines.join('\n')}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_set_provider ───────────────────────────────────────────────────────
+
+  server.tool(
+    'job_set_provider',
+    `Set the provider for an open job. Client-only. Job must be in Open status with no provider set.
+Requires ACP_ADDRESS + PRIVATE_KEY.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      jobId:     z.string().describe('Job ID (numeric)'),
+      provider:  z.string().describe('Provider wallet address'),
+    },
+    async ({ workspace, jobId, provider }) => {
+      const err = requireAcp();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const txHash = await acpWrite(env!, encodeSetProvider(BigInt(jobId), provider));
+        if (env?.HYBERDB_ADDRESS) {
+          await dbClient(rpcUrl, env, true).merge(`${workspace}/jobs`, `J-${jobId}`, { updatedAt: Math.floor(Date.now() / 1000) } as any);
+        }
+        return { content: [{ type: 'text' as const, text: `Provider set for J-${jobId}.\n  provider: ${provider}\n  txHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_fund ───────────────────────────────────────────────────────────────
+
+  server.tool(
+    'job_fund',
+    `Fund an open job by locking the budget into escrow.
+Sends two transactions: ERC-20 approve (if budget > 0), then fund().
+Returns both txHashes — the fund tx confirms the escrow lock.
+Requires ACP_ADDRESS + PRIVATE_KEY.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      jobId:     z.string().describe('Job ID (numeric)'),
+    },
+    async ({ workspace, jobId }) => {
+      const err = requireAcp();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const job = await acpReadJob(Number(jobId), rpcUrl, env!.ACP_ADDRESS!);
+        if (!job) return { content: [{ type: 'text' as const, text: `Job J-${jobId} not found.` }] };
+        if (job.status !== 'open') return { content: [{ type: 'text' as const, text: `Job J-${jobId} is ${job.status}, not open.` }] };
+
+        const rpcUrl_ = env!.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
+        let approveTxHash: string | null = null;
+
+        if (BigInt(job.budget) > 0n && job.token !== ZERO_ADDRESS) {
+          approveTxHash = await erc20Approve(env!, job.token, env!.ACP_ADDRESS!, BigInt(job.budget));
+          await waitReceipt(rpcUrl_, approveTxHash);
+        }
+
+        const fundTxHash = await acpWrite(env!, encodeFund(BigInt(jobId)));
+
+        await kvJobCacheSet(workspace, jobId, 'funded', '');
+
+        const lines = [`J-${jobId} funded — escrow locked.`, `  fundTxHash: ${fundTxHash}`];
+        if (approveTxHash) lines.push(`  approveTxHash: ${approveTxHash}`);
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_submit ─────────────────────────────────────────────────────────────
+
+  server.tool(
+    'job_submit',
+    `Provider submits a deliverable for a funded job. Transitions status to Submitted.
+result can be a URL, a HyberText txHash, IPFS CID, or any string — encoded as UTF-8 bytes on-chain.
+Requires ACP_ADDRESS + PRIVATE_KEY.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      jobId:     z.string().describe('Job ID (numeric)'),
+      result:    z.string().describe('Deliverable reference — URL, txHash, CID, or description'),
+    },
+    async ({ workspace, jobId, result }) => {
+      const err = requireAcp();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        // Encode result string as hex bytes
+        const resultHex = ('0x' + Buffer.from(result, 'utf8').toString('hex')) as `0x${string}`;
+        const txHash = await acpWrite(env!, encodeSubmit(BigInt(jobId), resultHex));
+
+        if (env?.HYBERDB_ADDRESS) {
+          const deliverable = /^0x[a-fA-F0-9]{64}$/.test(result) ? result : null;
+          await dbClient(rpcUrl, env, true).merge(`${workspace}/jobs`, `J-${jobId}`, {
+            deliverable, updatedAt: Math.floor(Date.now() / 1000),
+          } as any);
+        }
+        await kvJobCacheSet(workspace, jobId, 'submitted', '');
+
+        return { content: [{ type: 'text' as const, text: `J-${jobId} submitted → SUBMITTED.\n  result: ${result}\n  txHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_complete ───────────────────────────────────────────────────────────
+
+  server.tool(
+    'job_complete',
+    `Evaluator marks a submitted job as completed and releases escrowed funds to the provider.
+Only the evaluator address can call this. Gateway wallet must be the evaluator (or have been set as evaluator at job_create).
+reason is an optional bytes32 attestation (e.g. 0x prefixed hash).
+Requires ACP_ADDRESS + PRIVATE_KEY.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      jobId:     z.string().describe('Job ID (numeric)'),
+      reason:    z.string().optional().default('0x').describe('Optional bytes32 attestation hash (0x-prefixed hex)'),
+      comment:   z.string().optional().describe('Optional closing comment stored in HyberDB'),
+    },
+    async ({ workspace, jobId, reason, comment }) => {
+      const err = requireAcp();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const r = reason && reason !== '0x' ? reason : '0x' + '00'.repeat(32);
+        const txHash = await acpWrite(env!, encodeComplete(BigInt(jobId), r));
+
+        if (env?.HYBERDB_ADDRESS) {
+          await dbClient(rpcUrl, env, true).merge(`${workspace}/jobs`, `J-${jobId}`, { updatedAt: Math.floor(Date.now() / 1000) } as any);
+          if (comment && env?.EDGE_KV) {
+            const kv = env.EDGE_KV as any;
+            const n  = await nextSeq(kv, workspace, 'comment');
+            const { privateKeyToAccount } = await import('viem/accounts');
+            const author = privateKeyToAccount(env.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+            await dbClient(rpcUrl, env, true).set(`${workspace}/comments`, `J-${jobId}:C-${n}`, {
+              id: `C-${n}`, taskId: `J-${jobId}`, author, body: comment, createdAt: Math.floor(Date.now() / 1000),
+            } as any);
+          }
+        }
+        await kvJobCacheSet(workspace, jobId, 'completed', '');
+
+        return { content: [{ type: 'text' as const, text: `J-${jobId} completed → COMPLETED. Funds released.\n  txHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_reject ─────────────────────────────────────────────────────────────
+
+  server.tool(
+    'job_reject',
+    `Evaluator rejects a funded/submitted job and refunds the escrowed budget to the client.
+Client may also reject an open (unfunded) job.
+Requires ACP_ADDRESS + PRIVATE_KEY.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      jobId:     z.string().describe('Job ID (numeric)'),
+      reason:    z.string().optional().default('0x').describe('Optional bytes32 reason code (0x-prefixed hex)'),
+      comment:   z.string().optional().describe('Optional reason stored as a comment in HyberDB'),
+    },
+    async ({ workspace, jobId, reason, comment }) => {
+      const err = requireAcp();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const r = reason && reason !== '0x' ? reason : '0x' + '00'.repeat(32);
+        const txHash = await acpWrite(env!, encodeReject(BigInt(jobId), r));
+
+        if (env?.HYBERDB_ADDRESS && comment && env?.EDGE_KV) {
+          const kv = env.EDGE_KV as any;
+          const n  = await nextSeq(kv, workspace, 'comment');
+          const { privateKeyToAccount } = await import('viem/accounts');
+          const author = privateKeyToAccount(env.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+          await dbClient(rpcUrl, env, true).set(`${workspace}/comments`, `J-${jobId}:C-${n}`, {
+            id: `C-${n}`, taskId: `J-${jobId}`, author, body: comment, createdAt: Math.floor(Date.now() / 1000),
+          } as any);
+        }
+        await kvJobCacheSet(workspace, jobId, 'rejected', '');
+
+        return { content: [{ type: 'text' as const, text: `J-${jobId} rejected → REJECTED. Budget refunded.\n  txHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_claim_refund ───────────────────────────────────────────────────────
+
+  server.tool(
+    'job_claim_refund',
+    `Permissionless refund for an expired job. Works when the job deadline has passed and status is Funded or Submitted.
+Returns the escrowed budget to the client.
+Requires ACP_ADDRESS + PRIVATE_KEY.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      jobId:     z.string().describe('Job ID (numeric)'),
+    },
+    async ({ workspace, jobId }) => {
+      const err = requireAcp();
+      if (err) return { content: [{ type: 'text' as const, text: err }] };
+      try {
+        const txHash = await acpWrite(env!, encodeClaimRefund(BigInt(jobId)));
+        await kvJobCacheSet(workspace, jobId, 'expired', '');
+        return { content: [{ type: 'text' as const, text: `J-${jobId} → EXPIRED. Budget refunded.\n  txHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── job_comment ────────────────────────────────────────────────────────────
+
+  server.tool(
+    'job_comment',
+    `Add a comment to a job. Stored in HyberDB only — no on-chain transaction.
+Use for progress updates, questions, and coordination.
+Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      jobId:     z.string().describe('Job ID (numeric)'),
+      body:      z.string().describe('Comment text'),
+      author:    z.string().optional().describe('Author address (defaults to gateway wallet)'),
+    },
+    async ({ workspace, jobId, body, author }) => {
+      const tbErr = requireTaskboard();
+      if (tbErr) return { content: [{ type: 'text' as const, text: tbErr }] };
+      try {
+        const kv  = env!.EDGE_KV as any;
+        const n   = await nextSeq(kv, workspace, 'comment');
+        const id  = `C-${n}`;
+        const now = Math.floor(Date.now() / 1000);
+        let resolvedAuthor = author ?? null;
+        if (!resolvedAuthor) {
+          try {
+            const { privateKeyToAccount } = await import('viem/accounts');
+            resolvedAuthor = privateKeyToAccount(env!.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+          } catch { /* optional */ }
+        }
+        const txHash = await dbClient(rpcUrl, env!, true).set(
+          `${workspace}/comments`, `J-${jobId}:${id}`, { id, taskId: `J-${jobId}`, author: resolvedAuthor, body, createdAt: now } as any,
+        );
+        return { content: [{ type: 'text' as const, text: `Comment [${id}] added to J-${jobId}.\n  txHash: ${txHash}` }] };
       } catch (e: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
       }

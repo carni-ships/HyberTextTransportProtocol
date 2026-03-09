@@ -15,6 +15,9 @@ HYBERINDEX_ADDRESS = "0x82afb1215F60d9e969dC7918888D362E0f1Ac9f6"
 # Set to the block HyberIndex was deployed at to avoid scanning from genesis.
 # Find it with: cast receipt $(cast logs --address 0x82af... --from-block 0 --json | jq -r '.[0].transactionHash')
 HYBERINDEX_FROM_BLOCK = "0x1122962"
+# HyberACP — ERC-8183 Agentic Commerce Protocol
+# Set after deploying HyberACP.sol:  forge script packages/contracts/script/DeployHyberACP.s.sol ...
+ACP_ADDRESS = "0xc76140f683995b695FC10CAb9695a64aE8dE4110"
 
 # HyberKeyVault — encrypted site support
 # Set VAULT_ADDRESS after deploying HyberKeyVault.sol
