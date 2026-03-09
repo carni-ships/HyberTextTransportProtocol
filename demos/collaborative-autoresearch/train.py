@@ -25,8 +25,8 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = MAX_SEQ_LEN
-    n_layer:      int = 4
+    sequence_len: int = 128
+    n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
     dropout:      float = 0.0
@@ -122,7 +122,7 @@ def train():
     device      = "cuda" if torch.cuda.is_available() else "cpu"
     config      = GPTConfig()
     batch_size  = 8
-    lr          = 3e-4
+    lr          = 3e-3
 
     # Data
     train_data, val_data = prepare_data()
@@ -130,7 +130,7 @@ def train():
 
     # Model + optimizer
     model = GPT(config).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.1)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.85, 0.999), weight_decay=0.1)
 
     # Optionally compile (PyTorch 2+, significant speedup even on CPU)
     try:
