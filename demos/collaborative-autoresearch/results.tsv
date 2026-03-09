@@ -1,3 +1,16 @@
 commit	val_bpb	memory_mb	status	description
 dfe630f	3.233451	387.6	baseline	1L n_embd=128 n_head=4 lr=3e-3 betas=(0.85,0.999) seq_len=128
-PENDING	3.074416	409.2	improved	1L n_embd=64 n_head=2 lr=3e-3 betas=(0.85,0.999) seq_len=128 — 2499 steps, 0.062M params
+dfe630f	3.646844	415.7	sweep	1L n_embd=96 n_head=3 (run1)
+dfe630f	3.305672	405.0	sweep	1L n_embd=64 n_head=2 (run1)
+dfe630f	3.510507	406.8	sweep	1L n_embd=32 n_head=1 (run1)
+dfe630f	3.277872	407.2	sweep	1L n_embd=160 n_head=5 (run1)
+dfe630f	3.974329	395.6	sweep	1L n_embd=192 n_head=6 (run1)
+dfe630f	3.130209	389.1	sweep	1L n_embd=96 n_head=3 (run2)
+dfe630f	3.354839	406.7	sweep	1L n_embd=128 n_head=4 (run2)
+dfe630f	3.098817	409.7	sweep	1L n_embd=96 n_head=3 (run3)
+dfe630f	3.506692	425.1	sweep	1L n_embd=128 n_head=4 (run3)
+dfe630f	2.923414	408.6	sweep	1L n_embd=64 n_head=2 (run3) — best single run
+dfe630f	3.151165	407.0	sweep	1L n_embd=160 n_head=5 (run3)
+dfe630f	3.046828	387.8	sweep	1L n_embd=64 n_head=2 (run4)
+dfe630f	2.987191	408.4	sweep	1L n_embd=64 n_head=2 (run5)
+6e25c75	3.074416	409.2	improved	1L n_embd=64 n_head=2 lr=3e-3 betas=(0.85,0.999) seq_len=128 — official best
