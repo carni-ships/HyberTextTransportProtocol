@@ -25,7 +25,7 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = 64        # confirmed optimal in sweep
+    sequence_len: int = 80        # testing on MPS: can afford longer context given 2x throughput
     n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
