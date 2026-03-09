@@ -25,7 +25,7 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = 128       # testing on MPS: extended sweep
+    sequence_len: int = 160       # testing on MPS: extended sweep
     n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
