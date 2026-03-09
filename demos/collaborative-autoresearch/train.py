@@ -25,8 +25,8 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = MAX_SEQ_LEN
-    n_layer:      int = 4
+    sequence_len: int = 64        # sweep target: 32, 48, 64, 96, 128, 192
+    n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
     dropout:      float = 0.0
@@ -63,28 +63,29 @@ class CausalSelfAttention(nn.Module):
         return self.c_proj(y)
 
 
-class MLP(nn.Module):
+class SwiGLU(nn.Module):
+    """SwiGLU MLP — known to beat GELU for this task"""
     def __init__(self, config: GPTConfig):
         super().__init__()
-        self.fc1  = nn.Linear(config.n_embd, 4 * config.n_embd, bias=False)
-        self.fc2  = nn.Linear(4 * config.n_embd, config.n_embd, bias=False)
-        self.drop = nn.Dropout(config.dropout)
+        hidden = 4 * config.n_embd
+        self.gate = nn.Linear(config.n_embd, hidden, bias=False)
+        self.up   = nn.Linear(config.n_embd, hidden, bias=False)
+        self.down = nn.Linear(hidden, config.n_embd, bias=False)
 
     def forward(self, x):
-        return self.fc2(self.drop(F.gelu(self.fc1(x))))
+        return self.down(F.silu(self.gate(x)) * self.up(x))
 
 
 class Block(nn.Module):
+    """No LayerNorm — prior agents found it improves throughput & bpb at 1L"""
     def __init__(self, config: GPTConfig):
         super().__init__()
-        self.ln1  = nn.LayerNorm(config.n_embd)
         self.attn = CausalSelfAttention(config)
-        self.ln2  = nn.LayerNorm(config.n_embd)
-        self.mlp  = MLP(config)
+        self.mlp  = SwiGLU(config)
 
     def forward(self, x):
-        x = x + self.attn(self.ln1(x))
-        x = x + self.mlp(self.ln2(x))
+        x = x + self.attn(x)
+        x = x + self.mlp(x)
         return x
 
 
@@ -97,11 +98,20 @@ class GPT(nn.Module):
             'wpe': nn.Embedding(config.sequence_len, config.n_embd),
             'drop': nn.Dropout(config.dropout),
             'h': nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            'ln_f': nn.LayerNorm(config.n_embd),
         })
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # Weight tying
         self.transformer['wte'].weight = self.lm_head.weight
+
+        # GPT-2 style init: big gain per prior agents
+        self._init_weights()
+
+    def _init_weights(self):
+        for name, p in self.named_parameters():
+            if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name):
+                nn.init.normal_(p, mean=0.0, std=0.04)
+            elif 'proj' in name or 'down' in name:
+                nn.init.normal_(p, mean=0.0, std=0.01)
 
     def forward(self, idx):
         B, T = idx.size()
@@ -110,7 +120,6 @@ class GPT(nn.Module):
         x    = self.transformer['drop'](x)
         for block in self.transformer['h']:
             x = block(x)
-        x    = self.transformer['ln_f'](x)
         return self.lm_head(x)
 
     def num_params(self) -> int:
@@ -121,8 +130,8 @@ class GPT(nn.Module):
 def train():
     device      = "cuda" if torch.cuda.is_available() else "cpu"
     config      = GPTConfig()
-    batch_size  = 8
-    lr          = 3e-4
+    batch_size  = 16
+    lr          = 1e-2
 
     # Data
     train_data, val_data = prepare_data()
@@ -130,13 +139,21 @@ def train():
 
     # Model + optimizer
     model = GPT(config).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.1)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=lr,
+        betas=(0.75, 0.95),
+        weight_decay=0.2,
+    )
 
-    # Optionally compile (PyTorch 2+, significant speedup even on CPU)
-    try:
-        model = torch.compile(model)
-    except Exception:
-        pass
+    # Cosine LR schedule with warmup (helps with proper init per prior agents)
+    def get_lr(step, warmup=100, total=3000):
+        if step < warmup:
+            return step / warmup
+        progress = (step - warmup) / (total - warmup)
+        return 0.5 * (1 + math.cos(math.pi * progress))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, get_lr)
 
     # Training loop (time-budgeted)
     model.train()
@@ -159,6 +176,7 @@ def train():
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
+        scheduler.step()
 
         total_loss   += loss.item()
         num_steps    += 1
@@ -196,6 +214,7 @@ def train():
     print(f"n_layer:          {config.n_layer}")
     print(f"n_head:           {config.n_head}")
     print(f"n_embd:           {config.n_embd}")
+    print(f"seq_len:          {config.sequence_len}")
 
 
 if __name__ == "__main__":
