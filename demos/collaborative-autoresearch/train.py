@@ -25,7 +25,7 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = 64        # sweep target: 32, 48, 64, 96, 128, 192
+    sequence_len: int = 64        # confirmed optimal in sweep
     n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
@@ -128,7 +128,13 @@ class GPT(nn.Module):
 # ─── Training ────────────────────────────────────────────────────────────────
 
 def train():
-    device      = "cuda" if torch.cuda.is_available() else "cpu"
+    # Use MPS (Apple Silicon GPU) if available for significant speedup
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
     config      = GPTConfig()
     batch_size  = 16
     lr          = 1e-2
@@ -195,6 +201,8 @@ def train():
     # Memory
     if device == "cuda":
         peak_vram_mb = torch.cuda.max_memory_allocated() / 1e6
+    elif device == "mps":
+        peak_vram_mb = torch.mps.current_allocated_memory() / 1e6
     else:
         import resource, sys
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
