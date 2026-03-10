@@ -139,6 +139,11 @@ def train():
 
     # Model + optimizer
     model = GPT(config).to(device)
+    # torch.compile for potential speedup (MPS support varies by PyTorch version)
+    try:
+        model = torch.compile(model, mode='reduce-overhead')
+    except Exception:
+        pass  # fallback to eager if compile unsupported
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
