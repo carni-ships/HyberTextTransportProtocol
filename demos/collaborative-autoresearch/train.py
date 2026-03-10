@@ -71,17 +71,15 @@ class SwiGLU(nn.Module):
 
 
 class Block(nn.Module):
-    """Pre-norm RMSNorm — exp: test with final RMSNorm already in place"""
+    """No pre-norm in blocks — final RMSNorm only at output"""
     def __init__(self, config: GPTConfig):
         super().__init__()
-        self.ln1  = nn.RMSNorm(config.n_embd)
         self.attn = CausalSelfAttention(config)
-        self.ln2  = nn.RMSNorm(config.n_embd)
         self.mlp  = SwiGLU(config)
 
     def forward(self, x):
-        x = x + self.attn(self.ln1(x))
-        x = x + self.mlp(self.ln2(x))
+        x = x + self.attn(x)
+        x = x + self.mlp(x)
         return x
 
 
