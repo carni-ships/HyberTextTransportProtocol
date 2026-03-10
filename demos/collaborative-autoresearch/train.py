@@ -40,7 +40,7 @@ class CausalSelfAttention(nn.Module):
         assert config.n_embd % config.n_head == 0
         self.n_head  = config.n_head
         self.n_embd  = config.n_embd
-        self.c_attn  = nn.Linear(config.n_embd, 3 * config.n_embd, bias=False)
+        self.c_attn  = nn.Linear(config.n_embd, 3 * config.n_embd, bias=True)   # exp: attn bias
         self.c_proj  = nn.Linear(config.n_embd, config.n_embd, bias=False)
         self.dropout = config.dropout
 
