@@ -50,6 +50,8 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        # exp: value residual — add input x to v (cheap; helps preserve info)
+        v = v + x.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
 
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True,
                                            dropout_p=self.dropout if self.training else 0.0)
