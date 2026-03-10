@@ -129,3 +129,4 @@ ef5b226	2.286	5.5	discard	beta1=0.85+proj=0.09: mean 2.286 — 0.80 still optima
 51aa8e1	2.273	5.5	discard	wd=0.15+proj=0.09: mean 2.273 (16 runs) — within noise of wd=0.2 (2.274)
 596ff42	2.287	5.5	discard	wd=0.10+proj=0.09: mean 2.287 — wd=0.2 confirmed best even with proj_std=0.09
 2a1e1e2	2.301	5.5	discard	c_attn std=0.15: mean 2.301 — main std=0.20 best for c_attn too
+9b30e87	2.269	5.5	keep	clip=0.8+proj=0.09: mean 2.269 vs baseline 2.274 (16 runs throttled) — +0.005 more improvement!
