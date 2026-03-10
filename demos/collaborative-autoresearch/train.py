@@ -103,10 +103,12 @@ class GPT(nn.Module):
 
     def _init_weights(self):
         for name, p in self.named_parameters():
-            if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name):
+            if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name and 'c_attn' not in name):
                 nn.init.normal_(p, mean=0.0, std=0.20)  # sweet spot confirmed
+            elif 'c_attn' in name:
+                nn.init.normal_(p, mean=0.0, std=0.15)  # exp: separate QKV init (between main=0.20 and proj=0.09)
             elif 'proj' in name or 'down' in name:
-                nn.init.normal_(p, mean=0.0, std=0.09)  # sweet spot: 0.09 beats 0.05 baseline by +0.030 (2.274 vs 2.304)
+                nn.init.normal_(p, mean=0.0, std=0.09)  # sweet spot confirmed
 
     def forward(self, idx):
         B, T = idx.size()
