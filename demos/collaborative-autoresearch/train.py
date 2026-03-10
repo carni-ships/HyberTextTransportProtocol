@@ -34,14 +34,17 @@ class GPTConfig:
 # ─── Model ────────────────────────────────────────────────────────────────────
 
 class CausalSelfAttention(nn.Module):
-    """SDPA (scaled_dot_product_attention) — best config: batch=128+lr=2e-2+betas=(0.80,0.95)."""
+    """SDPA with QK norm — exp: normalize Q and K before dot product"""
     def __init__(self, config: GPTConfig):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         self.n_head  = config.n_head
         self.n_embd  = config.n_embd
+        head_dim = config.n_embd // config.n_head
         self.c_attn  = nn.Linear(config.n_embd, 3 * config.n_embd, bias=False)
         self.c_proj  = nn.Linear(config.n_embd, config.n_embd, bias=False)
+        self.q_norm  = nn.RMSNorm(head_dim)
+        self.k_norm  = nn.RMSNorm(head_dim)
         self.dropout = config.dropout
 
     def forward(self, x):
@@ -50,6 +53,8 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        q = self.q_norm(q)
+        k = self.k_norm(k)
 
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True,
                                            dropout_p=self.dropout if self.training else 0.0)
