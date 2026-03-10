@@ -27,7 +27,7 @@ class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
-    n_head:       int = 4
+    n_head:       int = 2  # exp: wider heads (64-dim each)
     n_embd:       int = 128
     dropout:      float = 0.0
 
