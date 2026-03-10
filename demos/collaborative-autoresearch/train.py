@@ -67,7 +67,7 @@ class SwiGLU(nn.Module):
         self.down = nn.Linear(hidden, config.n_embd, bias=False)
 
     def forward(self, x):
-        return self.down(F.gelu(self.gate(x)) * self.up(x))  # GeGLU per 0x27e7d83b
+        return self.down(F.silu(self.gate(x)) * self.up(x))
 
 
 class Block(nn.Module):
@@ -142,8 +142,8 @@ def train():
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
-        betas=(0.85, 0.97),  # per 0x27e7d83b: beta2=0.97 optimal over 0.95
-        weight_decay=0.1,  # per 0x27e7d83b: wd=0.1 over 0.2
+        betas=(0.85, 0.95),  # confirmed best
+        weight_decay=0.2,
     )
 
     # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
@@ -151,7 +151,7 @@ def train():
         if step < warmup:
             return step / warmup
         progress = min((step - warmup) / (total - warmup), 1.0)
-        return max(0.5 * (1 + math.cos(math.pi * progress)), 0.05)  # 5% min_lr per 0x27e7d83b
+        return max(0.5 * (1 + math.cos(math.pi * progress)), 0.0)
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, get_lr)
 
