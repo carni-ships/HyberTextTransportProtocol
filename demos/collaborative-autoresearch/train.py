@@ -26,15 +26,15 @@ from prepare import (
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
-    n_layer:      int = 2   # per 0x249f3d6c: 2 layers optimal
+    n_layer:      int = 1
     n_head:       int = 4
-    n_embd:       int = 96   # per 0x249f3d6c: 96 optimal for 2 layers
+    n_embd:       int = 128
     dropout:      float = 0.0
 
 # ─── Model ────────────────────────────────────────────────────────────────────
 
 class CausalSelfAttention(nn.Module):
-    """SDPA (scaled_dot_product_attention) — per 0x703cc308 finding with batch=64."""
+    """SDPA (scaled_dot_product_attention) — best config: batch=128+lr=2e-2+betas=(0.80,0.95)."""
     def __init__(self, config: GPTConfig):
         super().__init__()
         assert config.n_embd % config.n_head == 0
@@ -131,8 +131,8 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 128     # best with time-based cosine
-    lr          = 1.5e-2  # per 0x249f3d6c: 1.5e-2 better for 2-layer model
-    warmup_frac = 0.35    # per 0x249f3d6c: 35% warmup optimal for 2 layers
+    lr          = 2e-2    # optimal for batch=128
+    warmup_frac = 0.05    # short warmup best for 1-layer
     min_lr_frac = 0.0     # confirmed best: min_lr=0
 
     # Data
