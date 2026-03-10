@@ -142,7 +142,7 @@ def train():
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
-        betas=(0.85, 0.95),  # test: research db found (0.85,0.95) optimal
+        betas=(0.75, 0.95),  # back to prior best to isolate min_lr=0.0 effect
         weight_decay=0.2,
     )
 
