@@ -147,7 +147,8 @@ def train():
     )
 
     # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
-    def get_lr(step, warmup=50, total=1400):
+    # warmup=140 per 0xda61eb39 finding: improved 8-seed mean from 2.340 to 2.293
+    def get_lr(step, warmup=140, total=1400):
         if step < warmup:
             return step / warmup
         progress = min((step - warmup) / (total - warmup), 1.0)
