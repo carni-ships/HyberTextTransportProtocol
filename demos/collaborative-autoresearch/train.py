@@ -130,7 +130,7 @@ def train():
     else:
         device = "cpu"
     config      = GPTConfig()
-    batch_size  = 64      # MPS sweet spot per 0x703cc308: batch=64+SDPA
+    batch_size  = 32      # test: batch=32 for more gradient steps
     lr          = 1.5e-2  # confirmed best lr
 
     # Data
