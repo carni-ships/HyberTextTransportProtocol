@@ -186,7 +186,7 @@ def train():
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.7)  # exp: even tighter clip (0.8=2.269 best so far)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.9)  # exp: clip=0.9 (between 0.8=2.269 and 1.0=2.274)
 
         # Time-based cosine LR: adapts to actual step time / throttle state
         elapsed_train = time.perf_counter() - train_start
