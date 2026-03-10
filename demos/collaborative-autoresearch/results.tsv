@@ -115,3 +115,4 @@ note	2.407	5.5	discard	tied QK (shared Q=K weights): 2.407 single run — symmet
 92f49dd	2.390	5.5	discard	LayerScale γ=0.1: mean ~2.39 (8 runs, catastrophic) — init=0.1 too small; diverges
 note	3.291	5.5	discard	no wpe: 3.291 single run — position embeddings critical; not committed
 4ce4c67	2.358	5.5	discard	lr=1.9e-2: mean 2.358 (8 runs, severe throttle 301-538 steps) — 2e-2 stays optimal
+e9e1301	2.290	5.5	discard	local attn K=32: mean 2.290 (8 runs) — custom attn_mask SLOWER than is_causal=True on MPS; full causal best
