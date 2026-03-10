@@ -82,3 +82,4 @@ b33vep9	2.278	5.5	discard	wd=0.15 + RMSNorm: mean 2.278 — 0.2 still optimal
 bq85rmt	2.290	5.5	discard	proj_std=0.04 + RMSNorm: mean 2.290 — 0.05 stays optimal
 bficzvi	2.276	5.5	discard	batch=160 + RMSNorm+epoch: mean 2.276 — 128 stays optimal
 b2kc96f	2.271	5.5	discard	beta2=0.93 + RMSNorm+epoch: mean 2.271 — 0.95 stays optimal
+note	2.315	6.0	discard	bfloat16 autocast on MPS: slower + worse (2.315, 416 steps) — overhead hurts
