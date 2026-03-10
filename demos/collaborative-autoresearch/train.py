@@ -144,7 +144,7 @@ def train():
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
-        betas=(0.80, 0.95),  # test: beta1=0.80
+        betas=(0.75, 0.95),  # test: original best beta1=0.75 with new config
         weight_decay=0.2,
     )
 
