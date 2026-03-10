@@ -91,3 +91,4 @@ bn6um3p	2.328	5.5	discard	quadratic LR decay: mean 2.328 (4 runs) — cosine dec
 bknmfoh	2.286	5.5	discard	lr=1.8e-2 + pre-built loader: mean 2.286 — 2e-2 still optimal even with more steps
 bffrirv	2.284	5.5	discard	warmup=0.08 + pre-built loader: mean 2.284 — 0.05 stays best
 ba8pb8l	2.301	5.5	discard	n_embd=144 + pre-built loader: mean 2.301 (incl 2.475 outlier) — 128 stays optimal
+075d3ae	2.439	5.8	discard	n_layer=2+n_embd=96+lr=1.5e-2 re-test w/pre-built loader: 2.306-2.439, 316-444 steps — still compute-limited; 1-layer definitively better

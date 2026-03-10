@@ -26,9 +26,9 @@ from prepare import (
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
     sequence_len: int = 64        # confirmed best: seq=64
-    n_layer:      int = 2
+    n_layer:      int = 1
     n_head:       int = 4
-    n_embd:       int = 96  # exp: re-test 2L/96E with pre-built loader
+    n_embd:       int = 128
     dropout:      float = 0.0
 
 # ─── Model ────────────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 128     # best with time-based cosine
-    lr          = 1.5e-2  # per 0x249f3d6c: 1.5e-2 better for 2-layer
+    lr          = 2e-2    # optimal for batch=128
     warmup_frac = 0.05    # confirmed best for 1-layer + epoch-style
     min_lr_frac = 0.0     # confirmed best: min_lr=0
 
