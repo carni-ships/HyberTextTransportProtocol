@@ -61,7 +61,7 @@ class SwiGLU(nn.Module):
     """SwiGLU MLP — known to beat GELU for this task"""
     def __init__(self, config: GPTConfig):
         super().__init__()
-        hidden = int(8/3 * config.n_embd)  # test: SwiGLU ratio=8/3 (common in Llama)
+        hidden = 4 * config.n_embd
         self.gate = nn.Linear(config.n_embd, hidden, bias=False)
         self.up   = nn.Linear(config.n_embd, hidden, bias=False)
         self.down = nn.Linear(hidden, config.n_embd, bias=False)
