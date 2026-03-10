@@ -123,3 +123,4 @@ e487fc5	2.274	5.5	keep	proj_std=0.09: mean 2.274 vs baseline 2.304 (16 runs, thr
 1ba7505	2.281	5.5	discard	proj_std=0.10: mean 2.281 (16 runs, throttled) — 0.09 slightly better; 0.09 is sweet spot
 56767e1	2.284	5.5	discard	proj_std=0.12: mean 2.284 (8 runs) — confirms 0.09 is sweet spot
 710461c	2.296	5.5	discard	main_std=0.18+proj=0.09: mean 2.296 — 0.20+0.09 better (0.09 works best with main=0.20)
+3305b48	2.287	5.5	discard	lr=1.8e-2+proj=0.09: mean 2.287 — 2e-2 still optimal LR even with larger proj_std
