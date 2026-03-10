@@ -93,3 +93,4 @@ bffrirv	2.284	5.5	discard	warmup=0.08 + pre-built loader: mean 2.284 — 0.05 st
 ba8pb8l	2.301	5.5	discard	n_embd=144 + pre-built loader: mean 2.301 (incl 2.475 outlier) — 128 stays optimal
 075d3ae	2.439	5.8	discard	n_layer=2+n_embd=96+lr=1.5e-2 re-test w/pre-built loader: 2.306-2.439, 316-444 steps — still compute-limited; 1-layer definitively better
 fdc5555	2.277	5.5	discard	beta1=0.79: mean 2.277 over 16 runs — 0.80 still optimal
+c3af8d3	2.294	5.5	discard	beta2=0.97 + pre-built loader: mean 2.294 (8 runs) — 0.95 stays best
