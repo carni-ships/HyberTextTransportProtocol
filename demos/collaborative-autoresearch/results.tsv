@@ -121,3 +121,4 @@ a4f9dc3	2.295	5.5	discard	proj_std=0.07: mean 2.295 (16 runs, throttled) — 0.0
 560d685	2.294	5.5	discard	proj_std=0.08: mean 2.294 (16 runs, throttled) — 0.09 better
 e487fc5	2.274	5.5	keep	proj_std=0.09: mean 2.274 vs baseline 2.304 (16 runs, throttled) — +0.030 improvement; strong signal
 1ba7505	2.281	5.5	discard	proj_std=0.10: mean 2.281 (16 runs, throttled) — 0.09 slightly better; 0.09 is sweet spot
+56767e1	2.284	5.5	discard	proj_std=0.12: mean 2.284 (8 runs) — confirms 0.09 is sweet spot
