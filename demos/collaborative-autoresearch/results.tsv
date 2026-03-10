@@ -20,3 +20,11 @@ f70e6d7	2.362	5.6	discard	lr=2e-2+betas=(0.85,0.95)+min_lr=0: mean 2.362 — lr=
 f3cba49	2.331	5.6	discard	n_head=8: mean 2.331 — n_head=4 stays best
 7ba0510	2.309	5.6	discard	MLP 3x ratio: mean 2.309 — 4x slightly better
 5141177	2.300	5.6	discard	min_lr=0+betas=(0.75,0.95): mean 2.300 — confirms betas=(0.85,0.95) adds marginal benefit
+aa5920c	2.381	5.6	discard	warmup=100: mean 2.381 — warmup=50 is better
+449b5ed	2.423	5.6	discard	proj_std=0.10: mean 2.423 — 0.05 stays optimal
+694dc49	2.386	5.6	discard	proj_std=0.02: mean 2.386 — 0.05 is sweet spot
+5a30aa1	2.469	5.6	discard	seq_len=128: ~600 steps too few, mean 2.469
+e4a99e1	2.501	5.6	discard	seq_len=32: worse context, mean 2.501
+94c8a02	2.407	5.6	discard	wd=0.1: mean 2.407 — wd=0.2 still best
+df90041	2.450	5.6	discard	std=0.18: mean 2.450 — 0.20 is sweet spot
+0269814	2.457	5.6	discard	std=0.22: mean 2.457 — 0.20 is sweet spot
