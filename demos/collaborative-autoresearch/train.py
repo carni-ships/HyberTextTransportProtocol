@@ -132,7 +132,7 @@ def train():
     config      = GPTConfig()
     batch_size  = 128     # best with time-based cosine
     lr          = 2e-2    # confirmed best for batch=128
-    warmup_frac = 0.10    # test: 10% warmup
+    warmup_frac = 0.05    # confirmed sweet spot: 5% time-based warmup
     min_lr_frac = 0.0     # confirmed best: min_lr=0
 
     # Data
