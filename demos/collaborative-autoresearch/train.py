@@ -33,23 +33,53 @@ class GPTConfig:
 
 # ─── Model ────────────────────────────────────────────────────────────────────
 
+def build_rope_cache(seq_len: int, head_dim: int, device):
+    """Precompute RoPE sin/cos tables."""
+    theta = 1.0 / (10000 ** (torch.arange(0, head_dim, 2, device=device).float() / head_dim))
+    pos   = torch.arange(seq_len, device=device).float()
+    freqs = torch.outer(pos, theta)  # (T, head_dim/2)
+    return torch.cos(freqs), torch.sin(freqs)  # (T, head_dim/2) each
+
+def apply_rope(x, cos, sin):
+    """Apply rotary embeddings to query/key."""
+    B, nh, T, hd = x.shape
+    x1, x2 = x[..., :hd//2], x[..., hd//2:]
+    cos_t = cos[:T].unsqueeze(0).unsqueeze(0)  # (1,1,T,hd/2)
+    sin_t = sin[:T].unsqueeze(0).unsqueeze(0)
+    return torch.cat([x1*cos_t - x2*sin_t, x1*sin_t + x2*cos_t], dim=-1)
+
+
 class CausalSelfAttention(nn.Module):
-    """SDPA (scaled_dot_product_attention) — per 0x703cc308 finding with batch=64."""
+    """SDPA + RoPE positional encoding — replaces learned wpe."""
     def __init__(self, config: GPTConfig):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         self.n_head  = config.n_head
         self.n_embd  = config.n_embd
+        self.head_dim = config.n_embd // config.n_head
         self.c_attn  = nn.Linear(config.n_embd, 3 * config.n_embd, bias=False)
         self.c_proj  = nn.Linear(config.n_embd, config.n_embd, bias=False)
         self.dropout = config.dropout
+        # RoPE cache (rebuilt lazily per sequence length)
+        self._rope_len = 0
+        self._cos = self._sin = None
+
+    def _get_rope(self, T, device):
+        if T > self._rope_len or self._cos is None or self._cos.device != device:
+            self._cos, self._sin = build_rope_cache(max(T, 256), self.head_dim, device)
+            self._rope_len = max(T, 256)
+        return self._cos, self._sin
 
     def forward(self, x):
         B, T, C = x.size()
         q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+
+        cos, sin = self._get_rope(T, x.device)
+        q = apply_rope(q, cos, sin)
+        k = apply_rope(k, cos, sin)
 
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True,
                                            dropout_p=self.dropout if self.training else 0.0)
@@ -89,7 +119,7 @@ class GPT(nn.Module):
         self.config = config
         self.transformer = nn.ModuleDict({
             'wte': nn.Embedding(config.vocab_size, config.n_embd),
-            'wpe': nn.Embedding(config.sequence_len, config.n_embd),
+            # No wpe: RoPE handles position inside CausalSelfAttention
             'drop': nn.Dropout(config.dropout),
             'h': nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
         })
@@ -109,8 +139,7 @@ class GPT(nn.Module):
 
     def forward(self, idx):
         B, T = idx.size()
-        pos  = torch.arange(T, device=idx.device).unsqueeze(0)
-        x    = self.transformer['wte'](idx) + self.transformer['wpe'](pos)
+        x    = self.transformer['wte'](idx)  # RoPE: no wpe addition needed
         x    = self.transformer['drop'](x)
         for block in self.transformer['h']:
             x = block(x)
