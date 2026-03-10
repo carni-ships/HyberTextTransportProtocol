@@ -117,4 +117,5 @@ note	3.291	5.5	discard	no wpe: 3.291 single run — position embeddings critical
 4ce4c67	2.358	5.5	discard	lr=1.9e-2: mean 2.358 (8 runs, severe throttle 301-538 steps) — 2e-2 stays optimal
 e9e1301	2.290	5.5	discard	local attn K=32: mean 2.290 (8 runs) — custom attn_mask SLOWER than is_causal=True on MPS; full causal best
 note	2.443	5.5	discard	MQA (4Q+1K+1V heads): 2.443 single run — 1 KV head too limiting; not committed
-a4f9dc3	2.295	5.5	keep	proj_std=0.07: mean 2.295 vs baseline 2.304 (16 runs, throttled) — +0.009 improvement; needs cool validation
+a4f9dc3	2.295	5.5	discard	proj_std=0.07: mean 2.295 (16 runs, throttled) — 0.08 slightly better
+560d685	2.294	5.5	keep	proj_std=0.08: mean 2.294 vs baseline 2.304 (16 runs, throttled) — +0.010 improvement; needs cool validation
