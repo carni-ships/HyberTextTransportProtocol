@@ -56,3 +56,4 @@ dcfe6c7	2.307	5.5	discard	warmup_frac=0.10: mean 2.307
 f548884	2.314	5.5	discard	std=0.28: mean 2.314 — 0.20 stays best
 e05ab62	2.307	5.5	discard	SwiGLU 8/3 hidden ratio: mean 2.307 — 4x stays best
 b6d6679	2.364	5.8	discard	n_layer=2+n_embd=96+lr=1.5e-2+warmup=35% (per 0x249f3d6c): mean 2.364 over 8 runs — much worse (fewer steps per step)
+a2fb7e8	2.309	5.8	discard	n_embd=144: mean 2.309 over 8 runs — 128 still best (fewer steps with larger model)

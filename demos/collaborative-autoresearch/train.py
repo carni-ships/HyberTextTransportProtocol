@@ -28,7 +28,7 @@ class GPTConfig:
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
     n_head:       int = 4
-    n_embd:       int = 144  # exp: slightly wider than 128
+    n_embd:       int = 128
     dropout:      float = 0.0
 
 # ─── Model ────────────────────────────────────────────────────────────────────
@@ -137,7 +137,22 @@ def train():
 
     # Data
     train_data, val_data = prepare_data()
-    loader = make_dataloader(train_data, batch_size, config.sequence_len)
+    # Epoch-style dataloader: enumerate all non-overlapping windows, shuffle, cycle
+    _buf = torch.tensor(list(train_data), dtype=torch.long)
+    _n   = len(_buf)
+    _windows = torch.arange(0, _n - config.sequence_len - 1, config.sequence_len)
+
+    def _epoch_loader(buf, windows, bs, seq):
+        import random
+        while True:
+            idx = windows[torch.randperm(len(windows))]
+            for start in range(0, len(idx) - bs + 1, bs):
+                batch_starts = idx[start:start+bs]
+                x = torch.stack([buf[s : s + seq]     for s in batch_starts])
+                y = torch.stack([buf[s + 1 : s + seq + 1] for s in batch_starts])
+                yield x, y
+
+    loader = _epoch_loader(_buf, _windows, batch_size, config.sequence_len)
 
     # Model + optimizer
     model = GPT(config).to(device)
