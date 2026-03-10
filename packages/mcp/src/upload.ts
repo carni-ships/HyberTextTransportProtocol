@@ -247,6 +247,9 @@ export interface Env {
   HYBERINDEX_FROM_BLOCK?:  string;
   // Vault / encrypted sites
   ACP_ADDRESS?:            string;   // HyberACP contract address (ERC-8183)
+  AGENT_IDENTITY_ADDRESS?:    string;   // HyberAgentIdentity contract address (ERC-8004)
+  AGENT_REPUTATION_ADDRESS?:  string;   // HyberAgentReputation contract address (ERC-8004)
+  ACP_REP_HOOK_ADDRESS?:      string;   // HyberACPRepHook — ERC-8183 × ERC-8004 hook
   VAULT_ADDRESS?:          string;   // HyberKeyVault contract address
   VAULT_X25519_PUBKEY?:    string;   // 32-byte hex — exposed via GET /vault/pubkey
   VAULT_X25519_PRIVKEY?:   string;   // 32-byte hex secret — never exposed

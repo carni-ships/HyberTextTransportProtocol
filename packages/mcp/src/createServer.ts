@@ -14,8 +14,14 @@ import {
   trackDirectionFitness, getDirectionFitness, detectStagnation,
   updateCitationScores, getCitationTree, flattenCitationTree,
   kvAddBounty, kvGetBounties, kvGetBounty, kvUpdateBounty, verifyBountyQualification, formatBounty,
+  kvGetAgentIdentity, kvSetAgentIdentity, kvGetAgentRep, kvUpdateAgentRep, kvGetRepLeaderboard, formatRepSummary,
   type Insight, type DirectionClaim, type ResearchStrategy, type CitationNode, type ResearchBounty,
+  type AgentIdentityReg, type AgentRepSummary,
 } from './research.js';
+import {
+  identityGetTokenId, identityGetRegistration, identityRegister,
+  repGetScore, repSubmitFeedback, getTokenIdFromReceipt, formatRepScore,
+} from './erc8004.js';
 import {
   acpReadJob, acpWrite, acpJobCount, erc20Approve, waitReceipt,
   getJobIdFromReceipt, formatJob,
@@ -574,10 +580,237 @@ Filter by capability tag to find agents that can help with a specific task.`,
         return { content: [{ type: 'text' as const, text: capability ? `No agents found with capability "${capability}".` : 'No agents found.' }] };
       }
 
-      const lines = cards.map(c =>
-        `${c.address}  ${c.name}\n  ${c.description}\n  capabilities: ${c.capabilities.join(', ')}${c.endpoint ? `\n  endpoint: ${c.endpoint}` : ''}`
-      );
+      // Augment cards with ERC-8004 reputation if available
+      const lines = await Promise.all(cards.map(async c => {
+        let repLine = '';
+        if (kv) {
+          const rep = await kvGetAgentRep(kv, c.address);
+          if (rep) repLine = `\n  reputation: ${(rep.score >= 0 ? '+' : '') + rep.score.toFixed(4)}  (${rep.feedbackCount} feedbacks, ${rep.bountiesClaimed} bounties)`;
+        }
+        return `${c.address}  ${c.name}\n  ${c.description}\n  capabilities: ${c.capabilities.join(', ')}${c.endpoint ? `\n  endpoint: ${c.endpoint}` : ''}${repLine}`;
+      }));
       return { content: [{ type: 'text' as const, text: lines.join('\n\n') }] };
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // agent_identity_register — ERC-8004 identity mint
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'agent_identity_register',
+    `Register this agent with an ERC-8004 identity token on Berachain.
+Mints a HyberAgentIdentity ERC-721 token that serves as a portable, permanent agent identifier.
+The tokenId is the basis for all ERC-8004 reputation accumulation.
+
+Portable identifier format: eip155:80094:{contractAddress}:{tokenId}
+One registration per wallet address. Name must be unique across all registered agents.
+Requires PRIVATE_KEY + AGENT_IDENTITY_ADDRESS.`,
+    {
+      name:        z.string().max(64).describe('Unique agent name (max 64 chars)'),
+      description: z.string().describe('What this agent does'),
+      mcpEndpoint: z.string().optional().default('').describe('MCP server URL (or gateway endpoint)'),
+      tags:        z.array(z.string()).optional().default([]).describe('Capability tags, e.g. ["research", "gpt-training"]'),
+    },
+    async ({ name, description, mcpEndpoint, tags }) => {
+      if (!env?.PRIVATE_KEY)               return { content: [{ type: 'text' as const, text: 'PRIVATE_KEY not configured.' }] };
+      if (!env?.AGENT_IDENTITY_ADDRESS)    return { content: [{ type: 'text' as const, text: 'AGENT_IDENTITY_ADDRESS not configured — deploy HyberAgentIdentity.sol first.' }] };
+      try {
+        const { privateKeyToAccount } = await import('viem/accounts');
+        const ownerAddr = privateKeyToAccount(env.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+        const rpcUrl    = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
+
+        // Check if already registered
+        const existing = await identityGetTokenId(ownerAddr, env.AGENT_IDENTITY_ADDRESS, rpcUrl);
+        if (existing > 0) {
+          return { content: [{ type: 'text' as const, text: `Already registered — tokenId: ${existing}\nUse agent_identity_get to view your registration.` }] };
+        }
+
+        const txHash = await identityRegister(env, name, description, mcpEndpoint ?? '', tags ?? []);
+
+        // Wait for receipt to get tokenId
+        const tokenId = await getTokenIdFromReceipt(rpcUrl, txHash, env.AGENT_IDENTITY_ADDRESS);
+
+        // Cache in KV
+        if (env.EDGE_KV && tokenId) {
+          const reg: AgentIdentityReg = {
+            tokenId, owner: ownerAddr, name, description,
+            mcpEndpoint: mcpEndpoint ?? '', tags: tags ?? [],
+            registeredAt: Math.floor(Date.now() / 1000),
+            updatedAt:    Math.floor(Date.now() / 1000),
+          };
+          await kvSetAgentIdentity(env.EDGE_KV as any, reg);
+        }
+
+        const lines = [
+          `ERC-8004 identity registered!`,
+          `  txHash:  ${txHash}`,
+          `  tokenId: ${tokenId ?? '(pending — check receipt)'}`,
+          `  owner:   ${ownerAddr}`,
+          `  name:    ${name}`,
+          `  tags:    ${(tags ?? []).join(', ') || '(none)'}`,
+          `\nPortable id: eip155:80094:${env.AGENT_IDENTITY_ADDRESS}:${tokenId ?? '?'}`,
+          `Your agent now accumulates ERC-8004 reputation via bounty claims and citations.`,
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // agent_identity_get — ERC-8004 identity lookup
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'agent_identity_get',
+    `Look up the ERC-8004 identity registration for an agent.
+Returns registration details (name, description, MCP endpoint, tags) plus on-chain reputation score.
+Queries the chain directly if not found in the KV cache.
+Requires AGENT_IDENTITY_ADDRESS (AGENT_REPUTATION_ADDRESS optional for score).`,
+    {
+      address: z.string().optional().describe('Agent wallet address (defaults to this gateway wallet)'),
+      tokenId: z.number().int().optional().describe('ERC-8004 tokenId (alternative to address lookup)'),
+    },
+    async ({ address, tokenId }) => {
+      if (!env?.AGENT_IDENTITY_ADDRESS) return { content: [{ type: 'text' as const, text: 'AGENT_IDENTITY_ADDRESS not configured.' }] };
+      try {
+        const { privateKeyToAccount } = await import('viem/accounts');
+        const rpcUrl = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
+        const lookupAddr = (address ?? (env.PRIVATE_KEY ? privateKeyToAccount(env.PRIVATE_KEY as `0x${string}`).address : '')).toLowerCase();
+
+        // Resolve tokenId
+        let tid = tokenId;
+        if (!tid && lookupAddr) {
+          tid = await identityGetTokenId(lookupAddr, env.AGENT_IDENTITY_ADDRESS, rpcUrl);
+        }
+        if (!tid || tid === 0) {
+          return { content: [{ type: 'text' as const, text: `No ERC-8004 identity found for ${lookupAddr || 'this wallet'}.\nCall agent_identity_register to mint one.` }] };
+        }
+
+        // Try KV cache first, then chain
+        const kv = env.EDGE_KV as any;
+        let reg = kv ? await kvGetAgentIdentity(kv, lookupAddr) : null;
+        if (!reg) {
+          const onChain = await identityGetRegistration(tid, env.AGENT_IDENTITY_ADDRESS, rpcUrl);
+          if (!onChain) return { content: [{ type: 'text' as const, text: `Token ${tid} not found on-chain.` }] };
+          reg = { tokenId: tid, owner: lookupAddr, ...onChain };
+        }
+
+        const lines = [
+          `ERC-8004 Identity — tokenId: ${reg.tokenId}`,
+          `  owner:      ${reg.owner}`,
+          `  name:       ${reg.name}`,
+          `  endpoint:   ${reg.mcpEndpoint || '(not set)'}`,
+          `  tags:       ${reg.tags.join(', ') || '(none)'}`,
+          `  registered: ${new Date(reg.registeredAt * 1000).toISOString()}`,
+          `  portable:   eip155:80094:${env.AGENT_IDENTITY_ADDRESS}:${reg.tokenId}`,
+        ];
+
+        // Reputation score
+        if (env.AGENT_REPUTATION_ADDRESS) {
+          const { score, count } = await repGetScore(reg.tokenId, env.AGENT_REPUTATION_ADDRESS, rpcUrl);
+          lines.push(`  reputation: ${formatRepScore(score, count)}`);
+        }
+
+        // KV rep summary
+        if (kv) {
+          const repSummary = await kvGetAgentRep(kv, reg.owner);
+          if (repSummary) {
+            lines.push(`  citations:  ${repSummary.citationScore}  |  bounties: ${repSummary.bountiesClaimed}`);
+          }
+        }
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // agent_reputation_get — ERC-8004 reputation score for an agent
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'agent_reputation_get',
+    `Get the ERC-8004 reputation score for an agent.
+Shows on-chain feedback score plus KV-cached citation and bounty counts.
+Score is a signed value (1e18 denominator): positive = trusted, negative = penalised.
+Sources: bounty claims (+0.01 per claim), bounty rejections (−0.005), gateway citations (dripped off-chain).
+Requires AGENT_IDENTITY_ADDRESS + AGENT_REPUTATION_ADDRESS.`,
+    {
+      address: z.string().optional().describe('Agent wallet address (defaults to this gateway wallet)'),
+    },
+    async ({ address }) => {
+      if (!env?.AGENT_IDENTITY_ADDRESS)   return { content: [{ type: 'text' as const, text: 'AGENT_IDENTITY_ADDRESS not configured.' }] };
+      if (!env?.AGENT_REPUTATION_ADDRESS) return { content: [{ type: 'text' as const, text: 'AGENT_REPUTATION_ADDRESS not configured.' }] };
+      try {
+        const { privateKeyToAccount } = await import('viem/accounts');
+        const rpcUrl     = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
+        const lookupAddr = (address ?? (env.PRIVATE_KEY ? privateKeyToAccount(env.PRIVATE_KEY as `0x${string}`).address : '')).toLowerCase();
+        if (!lookupAddr) return { content: [{ type: 'text' as const, text: 'Provide address or configure PRIVATE_KEY.' }] };
+
+        const tokenId = await identityGetTokenId(lookupAddr, env.AGENT_IDENTITY_ADDRESS, rpcUrl);
+        if (tokenId === 0) {
+          return { content: [{ type: 'text' as const, text: `${lookupAddr} has no ERC-8004 identity. Call agent_identity_register first.` }] };
+        }
+
+        const [{ score, count }, kvRep] = await Promise.all([
+          repGetScore(tokenId, env.AGENT_REPUTATION_ADDRESS, rpcUrl),
+          env.EDGE_KV ? kvGetAgentRep(env.EDGE_KV as any, lookupAddr) : Promise.resolve(null),
+        ]);
+
+        const lines = [
+          `ERC-8004 Reputation — ${lookupAddr}`,
+          `  tokenId:   ${tokenId}`,
+          `  score:     ${formatRepScore(score, count)}  (on-chain)`,
+        ];
+        if (kvRep) {
+          lines.push(`  citations: ${kvRep.citationScore}  (times cited by other agents)`);
+          lines.push(`  bounties:  ${kvRep.bountiesClaimed}  (claimed and completed)`);
+          lines.push(`  combined:  ${(Number(score) / 1e18 + kvRep.citationScore * 0.001).toFixed(4)}  (score + 0.001×citations)`);
+        }
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // agent_reputation_list — ERC-8004 reputation leaderboard
+  // ---------------------------------------------------------------------------
+
+  server.tool(
+    'agent_reputation_list',
+    `List agents sorted by ERC-8004 reputation score (highest first).
+Combines on-chain feedback score + KV citation counts into a single ranking.
+Agents appear here after receiving their first feedback via bounty claims or citations.
+Requires EDGE_KV. AGENT_REPUTATION_ADDRESS optional (shows KV-only data if absent).`,
+    {
+      limit: z.number().int().min(1).max(50).optional().default(20),
+    },
+    async ({ limit }) => {
+      const kv = env?.EDGE_KV as any;
+      if (!kv) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const reps = await kvGetRepLeaderboard(kv, limit ?? 20);
+        if (!reps.length) {
+          return { content: [{ type: 'text' as const, text: 'No reputation data yet.\nAgents appear here after claiming bounties or being cited.' }] };
+        }
+
+        const lines = [
+          `ERC-8004 Reputation Leaderboard (top ${reps.length}):`,
+          '',
+          ...reps.map((r, i) => `${i + 1}. ${formatRepSummary(r)}`),
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
     }
   );
 
@@ -1072,6 +1305,15 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
           ...(directionCategory != null && metricDelta != null
             ? insight.topics.map((t: string) => trackDirectionFitness(kv, t, directionCategory, metricDelta))
             : []),
+          // ERC-8004: drip citation rep to cited agents in the KV rep index
+          ...(citations ?? []).map(async (citedHash: string) => {
+            const citedSummary = await kvGetInsightSummary(kv, citedHash);
+            if (!citedSummary) return;
+            const citedAgentId = citedSummary.agentId.toLowerCase();
+            const repEntry = await kvGetAgentRep(kv, citedAgentId);
+            if (!repEntry) return; // only update agents already in the rep index
+            await kvUpdateAgentRep(kv, citedAgentId, repEntry.tokenId, { citationDelta: 1, scoreDelta: 0.001 });
+          }),
         ]);
 
         const gatewayUrl = `${gatewayOrigin(env)}/${txHash}/`;
@@ -1703,7 +1945,24 @@ Requires EDGE_KV. PRIVATE_KEY + HYBERDB_ADDRESS needed to register the claim on-
           `7. At the end: research_strategy_publish to share process learnings.`,
           ``,
           `Track the board: research_leaderboard({ topic: "${topic}" })`,
+          ``,
+          `🏅 OPTIONAL: Register your ERC-8004 identity to accumulate reputation:`,
+          `   agent_identity_register({ name: "${agentTag ?? 'my-agent'}", description: "...", tags: ["research","${topic}"] })`,
+          `   Reputation accrues via bounty claims (+0.01) and citations (+0.001 per cite).`,
         ].filter(l => l !== '');
+
+        // ERC-8004: check identity status for this agent
+        if (env.PRIVATE_KEY && env.AGENT_IDENTITY_ADDRESS) {
+          try {
+            const { privateKeyToAccount } = await import('viem/accounts');
+            const agentAddr = privateKeyToAccount(env.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+            const rpcUrl2   = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
+            const tokenId   = await identityGetTokenId(agentAddr, env.AGENT_IDENTITY_ADDRESS, rpcUrl2);
+            if (tokenId > 0) {
+              lines.push('', `✅ ERC-8004 identity: tokenId ${tokenId} — reputation enabled`);
+            }
+          } catch { /* non-fatal */ }
+        }
 
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       } catch (e: unknown) {
@@ -2000,6 +2259,22 @@ Requires EDGE_KV. Escrow submission also requires ACP_ADDRESS + PRIVATE_KEY.`,
           lines.push(`\nEscrow job J-${bounty.jobId} submitted. The bounty poster must call job_complete to release funds.`);
         } else {
           lines.push(`\nAdvisory bounty — no escrow to release. Notify the bounty poster (${bounty.postedBy ?? 'unknown'}) directly.`);
+        }
+
+        // ERC-8004: drip reputation for the claiming agent (KV + optional on-chain)
+        const claimingAgentId = summary.agentId.toLowerCase();
+        if (env?.AGENT_IDENTITY_ADDRESS) {
+          const rpcUrl  = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
+          const tokenId = await identityGetTokenId(claimingAgentId, env.AGENT_IDENTITY_ADDRESS, rpcUrl).catch(() => 0);
+          if (tokenId > 0) {
+            // Update KV rep summary
+            await kvUpdateAgentRep(kv, claimingAgentId, tokenId, { bountyDelta: 1, scoreDelta: 0.01 });
+            lines.push(`  reputation: +0.01 dripped (ERC-8004 tokenId ${tokenId})`);
+            // Fire-and-forget on-chain write if reputation contract available
+            if (env.AGENT_REPUTATION_ADDRESS) {
+              repSubmitFeedback(env, tokenId, 1n * BigInt(1e16), ['bounty-claim'], findingTxHash).catch(() => {});
+            }
+          }
         }
 
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };

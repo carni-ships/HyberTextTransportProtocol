@@ -645,6 +645,95 @@ export function verifyBountyQualification(
   return null;
 }
 
+// ─── ERC-8004 identity & reputation (KV cache layer) ─────────────────────────
+
+export interface AgentIdentityReg {
+  tokenId:      number;
+  owner:        string;   // wallet address
+  name:         string;
+  description:  string;
+  mcpEndpoint:  string;
+  tags:         string[];
+  registeredAt: number;
+  updatedAt:    number;
+}
+
+export interface AgentRepSummary {
+  agentId:         string;  // wallet address
+  tokenId:         number;
+  score:           number;  // aggregated rep value (1e18 denominator, floating)
+  feedbackCount:   number;
+  citationScore:   number;  // from KV leaderboard (incremented per citation)
+  bountiesClaimed: number;
+  lastUpdated:     number;
+}
+
+export const KV_AGENT_IDENTITY  = (agentId: string) => `research:agent-identity:${agentId.toLowerCase()}`;
+export const KV_AGENT_REP       = (agentId: string) => `research:agent-rep:${agentId.toLowerCase()}`;
+export const KV_AGENT_REP_INDEX = ()                 => `research:agent-rep:__index__`;
+
+export async function kvGetAgentIdentity(kv: any, agentId: string): Promise<AgentIdentityReg | null> {
+  const val = await kv.get(KV_AGENT_IDENTITY(agentId));
+  return val ? JSON.parse(val) : null;
+}
+
+export async function kvSetAgentIdentity(kv: any, reg: AgentIdentityReg): Promise<void> {
+  await kv.put(KV_AGENT_IDENTITY(reg.owner), JSON.stringify(reg));
+}
+
+export async function kvGetAgentRep(kv: any, agentId: string): Promise<AgentRepSummary | null> {
+  const val = await kv.get(KV_AGENT_REP(agentId));
+  return val ? JSON.parse(val) : null;
+}
+
+export async function kvUpdateAgentRep(
+  kv: any,
+  agentId: string,
+  tokenId: number,
+  delta: { scoreDelta?: number; feedbackDelta?: number; bountyDelta?: number; citationDelta?: number },
+): Promise<void> {
+  const key  = KV_AGENT_REP(agentId);
+  const prev = await kv.get(key);
+  const rep: AgentRepSummary = prev ? JSON.parse(prev) : {
+    agentId, tokenId, score: 0, feedbackCount: 0, citationScore: 0, bountiesClaimed: 0, lastUpdated: 0,
+  };
+  if (delta.scoreDelta    !== undefined) rep.score           += delta.scoreDelta;
+  if (delta.feedbackDelta !== undefined) rep.feedbackCount   += delta.feedbackDelta;
+  if (delta.bountyDelta   !== undefined) rep.bountiesClaimed += delta.bountyDelta;
+  if (delta.citationDelta !== undefined) rep.citationScore   += delta.citationDelta;
+  rep.tokenId     = tokenId;
+  rep.lastUpdated = Math.floor(Date.now() / 1000);
+  await kv.put(key, JSON.stringify(rep));
+
+  // Keep a sorted global index for agent_reputation_list
+  const idxKey = KV_AGENT_REP_INDEX();
+  const idxRaw = await kv.get(idxKey);
+  const idx: AgentRepSummary[] = idxRaw ? JSON.parse(idxRaw) : [];
+  const existing = idx.findIndex(e => e.agentId.toLowerCase() === agentId.toLowerCase());
+  if (existing >= 0) {
+    idx[existing] = rep;
+  } else {
+    idx.push(rep);
+  }
+  idx.sort((a, b) => b.score - a.score);
+  await kv.put(idxKey, JSON.stringify(idx));
+}
+
+export async function kvGetRepLeaderboard(kv: any, limit: number): Promise<AgentRepSummary[]> {
+  const val = await kv.get(KV_AGENT_REP_INDEX());
+  if (!val) return [];
+  return (JSON.parse(val) as AgentRepSummary[]).slice(0, limit);
+}
+
+export function formatRepSummary(r: AgentRepSummary): string {
+  const scoreStr = (r.score >= 0 ? '+' : '') + r.score.toFixed(4);
+  return [
+    `${r.agentId}  (tokenId: ${r.tokenId})`,
+    `  score:    ${scoreStr}  (${r.feedbackCount} feedback${r.feedbackCount !== 1 ? 's' : ''})`,
+    `  citations: ${r.citationScore}  |  bounties: ${r.bountiesClaimed}`,
+  ].join('\n');
+}
+
 export function formatBounty(b: ResearchBounty): string {
   const lines = [
     `[${b.id}] ${b.title}  — ${b.status.toUpperCase()}`,

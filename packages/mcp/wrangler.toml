@@ -19,6 +19,15 @@ HYBERINDEX_FROM_BLOCK = "0x1122962"
 # Set after deploying HyberACP.sol:  forge script packages/contracts/script/DeployHyberACP.s.sol ...
 ACP_ADDRESS = "0xc76140f683995b695FC10CAb9695a64aE8dE4110"
 
+# ERC-8004 — Agent Identity & Reputation
+# Deploy order: Identity → Reputation (needs Identity addr) → ACPRepHook (needs both)
+#   forge script packages/contracts/script/DeployHyberAgentIdentity.s.sol ...
+#   AGENT_IDENTITY_ADDRESS=<addr> forge script packages/contracts/script/DeployHyberAgentReputation.s.sol ...
+#   ACP_ADDRESS=<addr> AGENT_IDENTITY_ADDRESS=<addr> AGENT_REPUTATION_ADDRESS=<addr> forge script packages/contracts/script/DeployHyberACPRepHook.s.sol ...
+AGENT_IDENTITY_ADDRESS = ""
+AGENT_REPUTATION_ADDRESS = ""
+ACP_REP_HOOK_ADDRESS = ""
+
 # HyberKeyVault — encrypted site support
 # Set VAULT_ADDRESS after deploying HyberKeyVault.sol
 VAULT_ADDRESS = "0x6D907c206a3fE8fF1046283E95054a9f264D6709"
