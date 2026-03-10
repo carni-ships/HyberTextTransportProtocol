@@ -61,7 +61,7 @@ class SwiGLU(nn.Module):
     """SwiGLU MLP — known to beat GELU for this task"""
     def __init__(self, config: GPTConfig):
         super().__init__()
-        hidden = 4 * config.n_embd
+        hidden = 2 * config.n_embd  # test: 2x ratio for much more steps
         self.gate = nn.Linear(config.n_embd, hidden, bias=False)
         self.up   = nn.Linear(config.n_embd, hidden, bias=False)
         self.down = nn.Linear(hidden, config.n_embd, bias=False)
