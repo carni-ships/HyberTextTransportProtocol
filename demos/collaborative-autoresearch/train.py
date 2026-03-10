@@ -156,11 +156,14 @@ def train():
 
     # Model + optimizer
     model = GPT(config).to(device)
+    # Selective weight decay: decay 2D params (linear weights), skip embeddings
+    decay_params    = [p for n, p in model.named_parameters() if p.dim() >= 2 and 'wte' not in n and 'wpe' not in n]
+    no_decay_params = [p for n, p in model.named_parameters() if p.dim() < 2 or 'wte' in n or 'wpe' in n]
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        [{'params': decay_params, 'weight_decay': 0.2},
+         {'params': no_decay_params, 'weight_decay': 0.0}],
         lr=lr,
         betas=(0.80, 0.95),  # confirmed sweet spot
-        weight_decay=0.2,
     )
 
     # Training loop — time-based cosine LR (adapts to actual hardware speed)
