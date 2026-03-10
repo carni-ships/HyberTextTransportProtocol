@@ -58,6 +58,7 @@ export interface DirectionClaim {
   topicSlug:         string;
   description:       string;
   agentId:           string;
+  name?:             string;  // human-readable agent label (e.g. "mar9-w"); used as dedup key when present
   claimedAt:         number;
   expiresAt:         number;
   intentConfidence:  number;  // 0.0–1.0
@@ -228,8 +229,9 @@ export async function kvAddClaim(kv: any, claim: DirectionClaim): Promise<void> 
   const prev = await kv.get(key);
   const claims: DirectionClaim[] = prev ? JSON.parse(prev) : [];
   const now  = Math.floor(Date.now() / 1000);
-  // Remove expired or same-agent entries, then prepend new claim
-  const fresh = claims.filter(c => c.expiresAt > now && c.agentId !== claim.agentId);
+  // Dedup by name (if provided) or agentId — named agents each get their own slot
+  const claimKey = (c: DirectionClaim) => c.name ?? c.agentId;
+  const fresh = claims.filter(c => c.expiresAt > now && claimKey(c) !== claimKey(claim));
   fresh.unshift(claim);
   await kv.put(key, JSON.stringify(fresh), { expirationTtl: Math.max(...fresh.map(c => c.expiresAt - now)) });
 }
@@ -268,6 +270,76 @@ export async function kvGetStrategies(
   // Sort by endorsement count DESC, then publishedAt DESC
   feed.sort((a, b) => (b.endorsements.length - a.endorsements.length) || (b.publishedAt - a.publishedAt));
   return feed.slice(0, limit);
+}
+
+// ─── Direction pool ───────────────────────────────────────────────────────────
+
+/** Pre-defined research directions per topic. Used by research_join to assign work. */
+const DIRECTION_POOL: Record<string, string[]> = {
+  'gpt-training': [
+    'Sequence length sweep: optimal seq_len given O(T²) attention cost (try 32–192)',
+    'Beta1/beta2 grid search: momentum parameters for high-lr underfitting regime',
+    'Weight decay sweep: wd=0.0 vs 0.01 vs 0.1 vs 0.5 at 1-layer scale',
+    'Gradient clipping: optimal clip norm and its interaction with lr=3e-3',
+    'Attention n_head sweep: head dimension vs number of heads trade-off at 1 layer',
+    'MLP variants: expansion ratio 1x/2x/4x/8x and attention-only (no MLP)',
+    'Embedding dimension sweep: n_embd=32–192 with fixed n_layer=1',
+    'Alternative optimizers: SGD+momentum, RMSprop, Adagrad vs AdamW',
+    'Data sampling: sequential scan vs random windows, context curriculum',
+    'LR schedule: cyclic triangular within 30s budget, warmup-then-constant',
+    'Combined ultra-tiny: n_embd=64, n_head=2, seq_len=64 — maximize step count',
+    'Activation functions: ReLU vs GELU vs SiLU in the MLP (throughput vs quality)',
+    'Batch size scaling: batch=2 vs 4 vs 8 vs 16 — gradient noise vs throughput',
+    'No bias everywhere vs selective bias on just the output projection',
+    'Tied vs untied input/output embeddings: remove weight tying to test independence',
+  ],
+};
+
+/**
+ * Return unclaimed directions from the seed pool.
+ * The joining agent (already an LLM) will reason over the returned feed + claims
+ * and self-select the best direction rather than having the gateway decide.
+ */
+export async function getUnclaimedDirections(
+  kv: any,
+  topic: string,
+): Promise<string[]> {
+  const activeClaims = await kvGetClaims(kv, topic);
+  const pool = DIRECTION_POOL[topic] ?? [];
+  const taken = new Set(activeClaims.map(c => c.description));
+  return pool.filter(d => !taken.has(d));
+}
+
+// ─── Leaderboard ──────────────────────────────────────────────────────────────
+
+export const KV_LEADERBOARD = (topic: string) => `research:leaderboard:${topic.toLowerCase()}`;
+
+export interface LeaderboardEntry {
+  agentId:       string;
+  count:         number;
+  lastPublished: number;
+}
+
+export async function updateLeaderboard(kv: any, topic: string, agentId: string): Promise<void> {
+  const key  = KV_LEADERBOARD(topic);
+  const prev = await kv.get(key);
+  const board: LeaderboardEntry[] = prev ? JSON.parse(prev) : [];
+  const now  = Math.floor(Date.now() / 1000);
+  const existing = board.find(e => e.agentId.toLowerCase() === agentId.toLowerCase());
+  if (existing) {
+    existing.count++;
+    existing.lastPublished = now;
+  } else {
+    board.push({ agentId, count: 1, lastPublished: now });
+  }
+  board.sort((a, b) => b.count - a.count);
+  await kv.put(key, JSON.stringify(board));
+}
+
+export async function getLeaderboard(kv: any, topic: string, limit: number): Promise<LeaderboardEntry[]> {
+  const val = await kv.get(KV_LEADERBOARD(topic));
+  if (!val) return [];
+  return (JSON.parse(val) as LeaderboardEntry[]).slice(0, limit);
 }
 
 // ─── Insight fetcher ──────────────────────────────────────────────────────────

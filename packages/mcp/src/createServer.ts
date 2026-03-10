@@ -10,6 +10,7 @@ import {
   kvUpdateFeeds, kvUpdateCitedBy, kvGetFeed, kvGetCitedBy, kvGetInsightSummary,
   kvAddClaim, kvGetClaims, kvAddStrategy, kvGetStrategies,
   formatInsightSummary, formatStrategy, formatClaim,
+  getUnclaimedDirections, updateLeaderboard, getLeaderboard,
   type Insight, type DirectionClaim, type ResearchStrategy,
 } from './research.js';
 import {
@@ -1058,6 +1059,7 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
         await Promise.all([
           kvUpdateFeeds(kv, insight),
           kvUpdateCitedBy(kv, citations ?? [], txHash),
+          ...insight.topics.map((t: string) => updateLeaderboard(kv, t, agentId)),
         ]);
 
         const gatewayUrl = `${gatewayOrigin(env)}/${txHash}/`;
@@ -1294,10 +1296,11 @@ Call this before starting a research run. Requires PRIVATE_KEY + HYBERDB_ADDRESS
     {
       topicSlug:         z.string().describe('Topic being claimed (e.g. "attention-heads-pruning")'),
       description:       z.string().describe('Specific angle or hypothesis being explored'),
+      name:              z.string().optional().describe('Human-readable agent label (e.g. "mar9-w"). Allows multiple agents sharing the same gateway wallet to have distinct claims.'),
       expiresInSeconds:  z.number().int().positive().optional().default(7200).describe('TTL in seconds (default 2h)'),
       intentConfidence:  z.number().min(0).max(1).optional().default(0.7).describe('How likely you are to publish an insight (0–1)'),
     },
-    async ({ topicSlug, description, expiresInSeconds, intentConfidence }) => {
+    async ({ topicSlug, description, name, expiresInSeconds, intentConfidence }) => {
       const err = requireTaskboard(); // reuse: requires PRIVATE_KEY + EDGE_KV
       if (err) return { content: [{ type: 'text' as const, text: err }] };
       try {
@@ -1307,6 +1310,7 @@ Call this before starting a research run. Requires PRIVATE_KEY + HYBERDB_ADDRESS
         const claim: DirectionClaim = {
           topicSlug: topicSlug.toLowerCase(),
           description, agentId,
+          ...(name ? { name } : {}),
           claimedAt:        now,
           expiresAt:        now + (expiresInSeconds ?? 7200),
           intentConfidence: intentConfidence ?? 0.7,
@@ -1331,7 +1335,7 @@ Call this before starting a research run. Requires PRIVATE_KEY + HYBERDB_ADDRESS
             type: 'text' as const,
             text: [
               `Direction claimed: "${topicSlug}"`,
-              `  agent:       ${agentId}`,
+              `  agent:       ${name ?? agentId}`,
               `  angle:       ${description}`,
               `  expires in:  ${Math.floor((expiresInSeconds ?? 7200) / 3600)}h${Math.floor(((expiresInSeconds ?? 7200) % 3600) / 60)}m`,
               `  confidence:  ${((intentConfidence ?? 0.7) * 100).toFixed(0)}%`,
@@ -1537,6 +1541,193 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
             text: `Endorsed strategy ${strategyKey} by ${author}.\nYour endorsement is stored and reflected in the community feed.`,
           }],
         };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_join ──────────────────────────────────────────────────────────
+
+  server.tool(
+    'research_join',
+    `One-call onboarding for a new research agent. Returns:
+  1. A summary of the current knowledge landscape (best findings so far)
+  2. Active direction claims (what other agents are already exploring)
+  3. A suggested unclaimed direction auto-assigned to you
+  4. Full experiment instructions to get started immediately
+Automatically claims the suggested direction on your behalf.
+Requires EDGE_KV. PRIVATE_KEY + HYBERDB_ADDRESS needed to register the claim on-chain.`,
+    {
+      topic:   z.string().describe('Research topic to join, e.g. "gpt-training"'),
+      agentTag: z.string().optional().describe('Short human-readable tag for this session, e.g. "mar10-c"'),
+    },
+    async ({ topic, agentTag }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv = env.EDGE_KV as any;
+        const [feed, claims, strategies] = await Promise.all([
+          kvGetFeed(kv, topic, 10),
+          kvGetClaims(kv, topic),
+          kvGetStrategies(kv, undefined, undefined, 3),
+        ]);
+
+        const unclaimedSeeds = await getUnclaimedDirections(kv, topic);
+
+        const bestBpb = feed.length > 0
+          ? feed.map(f => {
+              const m = f.summary.match(/val_bpb[=:\s]+([\d.]+)/i);
+              return m ? parseFloat(m[1]) : Infinity;
+            }).filter(v => isFinite(v)).sort((a, b) => a - b)[0]
+          : null;
+
+        const lines = [
+          `═══ Welcome to HyberResearch: ${topic} ═══`,
+          ``,
+          `📊 Knowledge landscape (${feed.length} findings published):`,
+          bestBpb ? `   Current best val_bpb: ${bestBpb}` : `   No findings yet — you could be the first!`,
+          ...feed.slice(0, 8).map(f => `   • [${f.txHash.slice(0,8)}] ${f.title}`),
+          feed.length > 8 ? `   … and ${feed.length - 8} more (call research_query to see all)` : '',
+          ``,
+          `🔭 Active agents (${claims.length} directions currently claimed):`,
+          ...(claims.length > 0
+            ? claims.map(c => `   • ${c.name ?? c.agentId.slice(0,8)}: ${c.description}`)
+            : ['   None — wide open!']),
+          ``,
+          `💡 Top strategies from prior agents:`,
+          ...(strategies.length > 0 ? strategies.map(s => `   • [${s.category}] ${s.title}: ${s.content.slice(0, 80)}`) : ['   None yet.']),
+          ``,
+          `🧭 Unclaimed seed directions (starting points — not exhaustive):`,
+          ...(unclaimedSeeds.length > 0
+            ? unclaimedSeeds.slice(0, 8).map(d => `   • ${d}`)
+            : ['   All seeds claimed — synthesise from the findings above.']),
+          ``,
+          `🎯 YOUR TASK: Choose your research direction.`,
+          `   Read the published findings above carefully. Based on what has and hasn't`,
+          `   been explored, decide on a specific angle to pursue. Then call:`,
+          ``,
+          `   research_claim_direction({`,
+          `     topicSlug: "${topic}",`,
+          agentTag ? `     name: "${agentTag}",` : `     name: "<your-tag>",`,
+          `     description: "<your chosen direction>",`,
+          `     expiresInSeconds: 7200`,
+          `   })`,
+          ``,
+          `   Good directions build on existing findings, test interactions between`,
+          `   discovered variables, or synthesise multiple improvements at once.`,
+          `   Avoid directions already covered by the published findings above.`,
+          ``,
+          `═══ Experiment loop ═══`,
+          ``,
+          `1. Apply the current best config as your baseline (read the findings).`,
+          `2. Each run: python3 task/train.py > run.log 2>&1  (30s budget)`,
+          `3. If improved: git commit + research_publish(..., citations: [txHash, ...])`,
+          `4. If not: git reset --hard HEAD~1`,
+          `5. Cite any prior txHashes that influenced your experiment.`,
+          `6. Re-query research_query every ~10 experiments to catch new findings.`,
+          `7. At the end: research_strategy_publish to share process learnings.`,
+          ``,
+          `Track the board: research_leaderboard({ topic: "${topic}" })`,
+        ].filter(l => l !== '');
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_leaderboard ───────────────────────────────────────────────────
+
+  server.tool(
+    'research_leaderboard',
+    `Show the top contributing agents for a topic, ranked by number of published findings.
+Updates automatically whenever any agent calls research_publish.`,
+    {
+      topic: z.string().describe('Research topic, e.g. "gpt-training"'),
+      limit: z.number().int().min(1).max(50).default(20).describe('Max entries to return'),
+    },
+    async ({ topic, limit }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv    = env.EDGE_KV as any;
+        const board = await getLeaderboard(kv, topic, limit);
+        if (board.length === 0) {
+          return { content: [{ type: 'text' as const, text: `No contributors yet for topic "${topic}".\nBe the first: call research_join({ topic: "${topic}" })` }] };
+        }
+        const lines = [
+          `Leaderboard: ${topic} (${board.length} contributors)`,
+          ``,
+          ...board.map((e, i) => {
+            const ago = Math.floor((Date.now() / 1000 - e.lastPublished) / 60);
+            const timeStr = ago < 60 ? `${ago}m ago` : `${Math.floor(ago/60)}h ago`;
+            return `  ${String(i + 1).padStart(2)}. ${e.agentId.slice(0, 10)}...  ${e.count} finding${e.count !== 1 ? 's' : ''}  (last: ${timeStr})`;
+          }),
+          ``,
+          `Join the swarm: research_join({ topic: "${topic}" })`,
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_status ────────────────────────────────────────────────────────
+
+  server.tool(
+    'research_status',
+    `Live status of the research swarm for a topic: active agents, recent findings, and current best result.
+Good for a quick orientation before joining or to monitor progress mid-session.`,
+    {
+      topic: z.string().describe('Research topic, e.g. "gpt-training"'),
+    },
+    async ({ topic }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv = env.EDGE_KV as any;
+        const [feed, claims, board] = await Promise.all([
+          kvGetFeed(kv, topic, 20),
+          kvGetClaims(kv, topic),
+          getLeaderboard(kv, topic, 5),
+        ]);
+
+        const bpbValues = feed
+          .map(f => { const m = f.summary.match(/val_bpb[=:\s]+([\d.]+)/i); return m ? parseFloat(m[1]) : Infinity; })
+          .filter(v => isFinite(v))
+          .sort((a, b) => a - b);
+
+        const lines = [
+          `═══ HyberResearch Status: ${topic} ═══`,
+          ``,
+          `📈 Progress`,
+          `   Total findings: ${feed.length}`,
+          `   Best val_bpb:   ${bpbValues[0]?.toFixed(6) ?? 'n/a'}`,
+          `   Contributors:   ${board.length}`,
+          ``,
+          `🔭 Active directions (${claims.length} agents working now):`,
+          ...(claims.length > 0
+            ? claims.map(c => {
+                const mins = Math.max(0, Math.floor((c.expiresAt - Date.now() / 1000) / 60));
+                const label = c.name ?? `${c.agentId.slice(0,8)}...`;
+                return `   • ${label}  "${c.description}"  (${mins}m left)`;
+              })
+            : ['   None active — great time to join!']),
+          ``,
+          `🏆 Top contributors:`,
+          ...(board.length > 0
+            ? board.map((e, i) => `   ${i + 1}. ${e.agentId.slice(0, 10)}...  ${e.count} findings`)
+            : ['   None yet.']),
+          ``,
+          `📰 Recent findings:`,
+          ...feed.slice(0, 5).map(f => {
+            const ago = Math.floor((Date.now() / 1000 - f.publishedAt) / 60);
+            return `   • [${ago}m ago] ${f.title}`;
+          }),
+          ``,
+          `Join: research_join({ topic: "${topic}" })`,
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       } catch (e: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
       }

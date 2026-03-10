@@ -150,14 +150,70 @@ async function rpcCall(rpcUrl: string, method: string, params: unknown[]): Promi
 
 interface TxContext { rpcUrl: string; wallet: ReturnType<typeof makeWallet>; nonce: number; gasPrice: bigint; }
 
+// ---------------------------------------------------------------------------
+// KV nonce reservation
+//
+// Problem: multiple Worker invocations publishing simultaneously all call
+// eth_getTransactionCount and receive the same pending nonce, so all but one
+// transaction fail with "replacement transaction underpriced".
+//
+// Fix: maintain a per-wallet nonce counter in KV.  Each invocation reads the
+// counter, increments it (claiming the old value), and writes back — all
+// before touching the RPC.  Cloudflare KV provides read-after-write
+// consistency within the same PoP, so concurrent requests at the same edge
+// location each receive a distinct nonce.
+//
+// The on-chain `eth_getTransactionCount(...,'pending')` value serves as a
+// floor: if the KV counter has drifted behind (e.g. a tx was dropped or the
+// counter expired), we reset to the chain's pending nonce so we never submit
+// a nonce that would be permanently stuck.
+// ---------------------------------------------------------------------------
+
+const NONCE_KV_TTL = 300; // 5 min — well above Berachain's ~2s block time
+
+async function reserveNonce(kv: any, rpcUrl: string, address: string): Promise<number> {
+  const KEY = `nonce:counter:${address.toLowerCase()}`;
+
+  // Fetch on-chain pending nonce and gas price in parallel.
+  const pendingHex = await rpcCall(rpcUrl, 'eth_getTransactionCount', [address, 'pending']);
+  const onChain    = parseInt(pendingHex as string, 16);
+
+  if (!kv) return onChain; // no KV configured — fall back to original behavior
+
+  const raw = await kv.get(KEY);
+  let nonce = onChain;
+
+  if (raw) {
+    const stored = JSON.parse(raw) as { n: number; updatedAt: number };
+    const ageMs  = Date.now() - stored.updatedAt;
+    // Use KV counter only if it's fresh (< 2 min) and ahead of the chain.
+    // If it has fallen behind the chain's pending count, the chain wins —
+    // this self-heals after a dropped or stuck transaction.
+    if (ageMs < 120_000 && stored.n > onChain) {
+      nonce = stored.n;
+    }
+  }
+
+  // Claim `nonce`, write `nonce + 1` for the next caller.
+  await kv.put(KEY, JSON.stringify({ n: nonce + 1, updatedAt: Date.now() }), {
+    expirationTtl: NONCE_KV_TTL,
+  });
+
+  return nonce;
+}
+
 async function makeTxContext(env: Env): Promise<TxContext> {
-  const rpcUrl   = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
-  const wallet   = makeWallet(env);
-  // Use raw fetch for pre-flight calls — viem's transport batches these with large payloads
-  // which causes some RPCs to reject the combined request body.
-  const nonceHex    = await rpcCall(rpcUrl, 'eth_getTransactionCount', [wallet.account.address, 'pending']);
-  const gasPriceHex = await rpcCall(rpcUrl, 'eth_gasPrice', []);
-  return { rpcUrl, wallet, nonce: parseInt(nonceHex as string, 16), gasPrice: BigInt(gasPriceHex as string) };
+  const rpcUrl = env.BERACHAIN_RPC ?? 'https://rpc.berachain.com';
+  const wallet = makeWallet(env);
+  const kv     = (env as any).EDGE_KV ?? null;
+
+  // Reserve nonce via KV + fetch gas price in parallel.
+  const [nonce, gasPriceHex] = await Promise.all([
+    reserveNonce(kv, rpcUrl, wallet.account.address),
+    rpcCall(rpcUrl, 'eth_gasPrice', []),
+  ]);
+
+  return { rpcUrl, wallet, nonce, gasPrice: BigInt(gasPriceHex as string) };
 }
 
 async function sendTx(data: Buffer, ctx: TxContext): Promise<`0x${string}`> {
