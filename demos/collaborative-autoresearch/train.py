@@ -28,7 +28,7 @@ class GPTConfig:
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
     n_head:       int = 4
-    n_embd:       int = 160  # per 0xd8b7e635: n_embd=160 beats 128
+    n_embd:       int = 128
     dropout:      float = 0.0
 
 # ─── Model ────────────────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 64      # MPS sweet spot per 0x703cc308: batch=64+SDPA
-    lr          = 3e-2    # per 0xd8b7e635: lr=3e-2 + grad_clip=0.5 + n_embd=160 + wd=0.1 → 2.276
+    lr          = 1.5e-2  # confirmed best lr
 
     # Data
     train_data, val_data = prepare_data()
@@ -143,7 +143,7 @@ def train():
         model.parameters(),
         lr=lr,
         betas=(0.75, 0.95),
-        weight_decay=0.1,  # per 0xd8b7e635: wd=0.1 beats 0.2 at lr=3e-2
+        weight_decay=0.2,
     )
 
     # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
@@ -174,7 +174,7 @@ def train():
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)  # per 0xd8b7e635: 0.5 stabilizes lr=3e-2
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         scheduler.step()
 
