@@ -71,7 +71,7 @@ class SwiGLU(nn.Module):
 
 
 class Block(nn.Module):
-    """No pre-norm in blocks — final RMSNorm only at output"""
+    """No norm in blocks — final RMSNorm at output (pre-norm in blocks hurts throughput)"""
     def __init__(self, config: GPTConfig):
         super().__init__()
         self.attn = CausalSelfAttention(config)
@@ -92,7 +92,7 @@ class GPT(nn.Module):
             'wpe': nn.Embedding(config.sequence_len, config.n_embd),
             'drop': nn.Dropout(config.dropout),
             'h': nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            'ln_f': nn.RMSNorm(config.n_embd),  # exp: RMSNorm (no mean subtraction, faster)
+            'ln_f': nn.RMSNorm(config.n_embd),  # final output norm — improves bpb vs no-norm
         })
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # Weight tying
