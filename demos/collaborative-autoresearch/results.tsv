@@ -131,3 +131,4 @@ ef5b226	2.286	5.5	discard	beta1=0.85+proj=0.09: mean 2.286 — 0.80 still optima
 2a1e1e2	2.301	5.5	discard	c_attn std=0.15: mean 2.301 — main std=0.20 best for c_attn too
 9b30e87	2.269	5.5	keep	clip=0.8+proj=0.09: mean 2.269 vs baseline 2.274 (16 runs throttled) — +0.005 more improvement!
 45c0d65	2.274	5.5	discard	clip=0.7: mean 2.274 (8 runs) — 0.8 is sweet spot
+192cfd6	2.298	5.5	discard	clip=0.9: mean 2.298 (8 runs) — 0.8 confirmed sweet spot
