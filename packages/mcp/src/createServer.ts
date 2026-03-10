@@ -840,11 +840,23 @@ Requires EDGE_KV. AGENT_REPUTATION_ADDRESS optional (shows KV-only data if absen
     priority:     TaskPriority;
     assignee:     string | null;
     labels:       string[];
+    milestoneId:  string | null;
+    dueDate:      number | null;    // unix seconds
     createdBy:    string | null;
     createdAt:    number;
     updatedAt:    number;
     resultTxHash: string | null;
     parentId:     string | null;
+  }
+
+  interface TaskboardMilestone {
+    id:           string;   // M-{n}
+    workspace:    string;
+    title:        string;
+    description:  string;
+    status:       'active' | 'completed' | 'cancelled';
+    dueDate:      number | null;
+    createdAt:    number;
   }
 
   interface TaskComment {
@@ -887,6 +899,8 @@ Requires EDGE_KV. AGENT_REPUTATION_ADDRESS optional (shows KV-only data if absen
       `  priority: ${t.priority}`,
       `  assignee: ${t.assignee ?? 'unassigned'}`,
     ];
+    if (t.milestoneId)      lines.push(`  milestone: ${t.milestoneId}`);
+    if (t.dueDate)          lines.push(`  due:      ${new Date(t.dueDate * 1000).toISOString().slice(0, 10)}`);
     if (t.labels.length)    lines.push(`  labels:   ${t.labels.join(', ')}`);
     if (t.description)      lines.push(`  desc:     ${t.description}`);
     if (t.parentId)         lines.push(`  parent:   ${t.parentId}`);
@@ -965,9 +979,11 @@ Assignee should be an agent wallet address. Requires PRIVATE_KEY + HYBERDB_ADDRE
       assignee:    z.string().optional().describe('Assignee wallet address (agent or human)'),
       priority:    z.enum(['urgent', 'high', 'medium', 'low']).optional().default('medium'),
       labels:      z.array(z.string()).optional().default([]).describe('Label tags'),
+      milestoneId: z.string().optional().describe('Milestone ID (e.g. "M-1")'),
+      dueDate:     z.number().optional().describe('Due date as unix seconds'),
       parentId:    z.string().optional().describe('Parent task ID for sub-tasks'),
     },
-    async ({ workspace, project, title, description, assignee, priority, labels, parentId }) => {
+    async ({ workspace, project, title, description, assignee, priority, labels, milestoneId, dueDate, parentId }) => {
       const err = requireTaskboard();
       if (err) return { content: [{ type: 'text' as const, text: err }] };
       try {
@@ -988,6 +1004,8 @@ Assignee should be an agent wallet address. Requires PRIVATE_KEY + HYBERDB_ADDRE
           priority: priority ?? 'medium',
           assignee: assignee ?? null,
           labels:   labels   ?? [],
+          milestoneId:  milestoneId ?? null,
+          dueDate:      dueDate     ?? null,
           createdBy,
           createdAt:    now,
           updatedAt:    now,
@@ -1058,8 +1076,10 @@ Requires PRIVATE_KEY on the gateway.`,
       title:       z.string().optional(),
       description: z.string().optional(),
       labels:      z.array(z.string()).optional(),
+      milestoneId: z.string().nullable().optional().describe('Milestone ID, or null to clear'),
+      dueDate:     z.number().nullable().optional().describe('Due date as unix seconds, or null to clear'),
     },
-    async ({ workspace, taskId, status, assignee, priority, title, description, labels }) => {
+    async ({ workspace, taskId, status, assignee, priority, title, description, labels, milestoneId, dueDate }) => {
       const err = requireTaskboard();
       if (err) return { content: [{ type: 'text' as const, text: err }] };
       try {
@@ -1070,6 +1090,8 @@ Requires PRIVATE_KEY on the gateway.`,
         if (title       !== undefined) updates.title       = title;
         if (description !== undefined) updates.description = description;
         if (labels      !== undefined) updates.labels      = labels;
+        if (milestoneId !== undefined) updates.milestoneId = milestoneId;
+        if (dueDate     !== undefined) updates.dueDate     = dueDate;
 
         const txHash = await dbClient(rpcUrl, env!, true).merge(`${workspace}/tasks`, taskId, updates as any);
         return { content: [{ type: 'text' as const, text: `Updated ${taskId}.\ntxHash: ${txHash}` }] };
@@ -1195,6 +1217,106 @@ Automatically transitions status to "done". Requires PRIVATE_KEY on the gateway.
 
         const resultUrl = `${gatewayOrigin(env)}/${resultTxHash}/`;
         return { content: [{ type: 'text' as const, text: `${taskId} marked done.\nResult: ${resultUrl}\ntxHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── taskboard_milestone_create ───────────────────────────────────────────
+
+  server.tool(
+    'taskboard_milestone_create',
+    `Create a milestone in a workspace. Milestones group tasks by delivery target.
+Stored in KV for fast access. Requires EDGE_KV.`,
+    {
+      workspace:   z.string().describe('Workspace slug'),
+      title:       z.string().describe('Milestone title'),
+      description: z.string().optional().describe('Optional description'),
+      dueDate:     z.number().optional().describe('Due date as unix seconds'),
+    },
+    async ({ workspace, title, description, dueDate }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv  = env.EDGE_KV as any;
+        const n   = await nextSeq(kv, workspace, 'milestone');
+        const ms: TaskboardMilestone = {
+          id:          `M-${n}`,
+          workspace,
+          title,
+          description: description ?? '',
+          status:      'active',
+          dueDate:     dueDate ?? null,
+          createdAt:   Math.floor(Date.now() / 1000),
+        };
+        const prevRaw = await kv.get(`taskboard:${workspace}:milestones`);
+        const list: TaskboardMilestone[] = prevRaw ? JSON.parse(prevRaw) : [];
+        list.push(ms);
+        await kv.put(`taskboard:${workspace}:milestones`, JSON.stringify(list));
+        return { content: [{ type: 'text' as const, text: `Created milestone ${ms.id}: ${ms.title}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── taskboard_milestone_list ─────────────────────────────────────────────
+
+  server.tool(
+    'taskboard_milestone_list',
+    `List milestones in a workspace. Optionally filter by status (active/completed/archived).
+Requires EDGE_KV.`,
+    {
+      workspace: z.string().describe('Workspace slug'),
+      status:    z.enum(['active', 'completed', 'archived']).optional().describe('Filter by status'),
+    },
+    async ({ workspace, status }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv     = env.EDGE_KV as any;
+        const raw    = await kv.get(`taskboard:${workspace}:milestones`);
+        let list: TaskboardMilestone[] = raw ? JSON.parse(raw) : [];
+        if (status) list = list.filter(ms => ms.status === status);
+        if (!list.length) return { content: [{ type: 'text' as const, text: 'No milestones found.' }] };
+        const lines = list.map(ms => {
+          const due = ms.dueDate ? `  due: ${new Date(ms.dueDate * 1000).toISOString().slice(0, 10)}` : '';
+          return `${ms.id}  [${ms.status}]  ${ms.title}${due}${ms.description ? `\n  ${ms.description}` : ''}`;
+        });
+        return { content: [{ type: 'text' as const, text: lines.join('\n\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── taskboard_milestone_update ───────────────────────────────────────────
+
+  server.tool(
+    'taskboard_milestone_update',
+    `Update a milestone's fields. Use status="completed" to close a milestone.
+Requires EDGE_KV.`,
+    {
+      workspace:   z.string().describe('Workspace slug'),
+      milestoneId: z.string().describe('Milestone ID, e.g. "M-3"'),
+      title:       z.string().optional(),
+      description: z.string().optional(),
+      status:      z.enum(['active', 'completed', 'archived']).optional(),
+      dueDate:     z.number().nullable().optional().describe('Due date as unix seconds, or null to clear'),
+    },
+    async ({ workspace, milestoneId, title, description, status, dueDate }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv      = env.EDGE_KV as any;
+        const raw     = await kv.get(`taskboard:${workspace}:milestones`);
+        const list: TaskboardMilestone[] = raw ? JSON.parse(raw) : [];
+        const idx     = list.findIndex(ms => ms.id === milestoneId);
+        if (idx < 0) return { content: [{ type: 'text' as const, text: `Milestone ${milestoneId} not found.` }] };
+        if (title       !== undefined) list[idx].title       = title;
+        if (description !== undefined) list[idx].description = description;
+        if (status      !== undefined) list[idx].status      = status;
+        if (dueDate     !== undefined) list[idx].dueDate     = dueDate;
+        await kv.put(`taskboard:${workspace}:milestones`, JSON.stringify(list));
+        return { content: [{ type: 'text' as const, text: `Updated ${milestoneId}: ${list[idx].title}` }] };
       } catch (e: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
       }

@@ -11,6 +11,8 @@ import {
   BeranamesResolver,
 } from './aliases.js';
 import { handleDbRequest, warmDbCache } from '@hybertext/db';
+import { handleTaskboardApi } from './taskboard-api.js';
+import { linearPage } from './linear.js';
 import {
   fetchVaultRecord,
   unwrapCEK,
@@ -945,6 +947,19 @@ export default {
       return new Response(JSON.stringify({ topic, feed, claims, leaderboard, fetchedAt: Date.now() }), {
         headers: corsHeaders,
       });
+    }
+
+    // ── Linear UI ────────────────────────────────────────────────────────────
+    if (url.pathname === '/linear') {
+      return new Response(linearPage(), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    // ── Taskboard REST API ───────────────────────────────────────────────────
+    if (url.pathname.startsWith('/api/taskboard/')) {
+      const apiResponse = await handleTaskboardApi(request, url, env);
+      if (apiResponse) return apiResponse;
     }
 
     // ── Publish endpoint ─────────────────────────────────────────────────────
