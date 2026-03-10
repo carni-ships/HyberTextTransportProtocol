@@ -92,7 +92,7 @@ class GPT(nn.Module):
             'wpe': nn.Embedding(config.sequence_len, config.n_embd),
             'drop': nn.Dropout(config.dropout),
             'h': nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            'ln_f': nn.LayerNorm(config.n_embd),  # exp: final output norm only
+            'ln_f': nn.RMSNorm(config.n_embd),  # exp: RMSNorm (no mean subtraction, faster)
         })
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # Weight tying
