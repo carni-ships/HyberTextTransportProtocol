@@ -126,3 +126,4 @@ e487fc5	2.274	5.5	keep	proj_std=0.09: mean 2.274 vs baseline 2.304 (16 runs, thr
 3305b48	2.287	5.5	discard	lr=1.8e-2+proj=0.09: mean 2.287 — 2e-2 still optimal LR even with larger proj_std
 ef5b226	2.286	5.5	discard	beta1=0.85+proj=0.09: mean 2.286 — 0.80 still optimal beta1 with new init
 0c15f06	2.274	5.5	BEST	proj_std=0.09 confirmed: mean 2.274 over 16 runs (throttled, 502 steps) — +0.030 vs same-session baseline 2.304; beats bvdgdh0 extrapolated
+51aa8e1	2.273	5.5	note	wd=0.15+proj=0.09: mean 2.273 (16 runs) — within noise of wd=0.2; testing wd=0.10
