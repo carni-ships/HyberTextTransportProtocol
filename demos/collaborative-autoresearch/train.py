@@ -61,7 +61,7 @@ class SwiGLU(nn.Module):
     """SwiGLU MLP — known to beat GELU for this task"""
     def __init__(self, config: GPTConfig):
         super().__init__()
-        hidden = 3 * config.n_embd  # test: 3x ratio for more steps vs 4x default
+        hidden = 4 * config.n_embd
         self.gate = nn.Linear(config.n_embd, hidden, bias=False)
         self.up   = nn.Linear(config.n_embd, hidden, bias=False)
         self.down = nn.Linear(hidden, config.n_embd, bias=False)
@@ -147,7 +147,7 @@ def train():
     )
 
     # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
-    def get_lr(step, warmup=50, total=1400):
+    def get_lr(step, warmup=100, total=1400):
         if step < warmup:
             return step / warmup
         progress = min((step - warmup) / (total - warmup), 1.0)
