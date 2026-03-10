@@ -164,7 +164,7 @@ def train():
         model.parameters(),
         lr=lr,
         betas=(0.80, 0.95),  # confirmed sweet spot
-        weight_decay=0.10,  # exp: wd=0.10 with proj_std=0.09 (even less decay)
+        weight_decay=0.2,
     )
 
     # Training loop — time-based cosine LR (adapts to actual hardware speed)
