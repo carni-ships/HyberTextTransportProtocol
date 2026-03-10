@@ -130,7 +130,7 @@ def train():
     else:
         device = "cpu"
     config      = GPTConfig()
-    batch_size  = 128     # best with time-based cosine
+    batch_size  = 192     # exp: larger batch with epoch-style loader
     lr          = 2e-2    # optimal for batch=128
     warmup_frac = 0.05    # confirmed best for 1-layer + epoch-style
     min_lr_frac = 0.0     # confirmed best: min_lr=0
