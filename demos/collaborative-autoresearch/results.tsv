@@ -12,3 +12,5 @@ ff7a2e0	2.377	5.6	discard	GeGLU activation: mean 2.377 (8 runs) vs 2.305 SwiGLU 
 cbe13ff	2.377	5.6	discard	n_embd=160 fewer steps (mean 2.377 vs 2.305 baseline)
 8e3f5ba	2.316	5.6	discard	total=1100 cosine: mean 2.316 vs 2.305 (total=1400 better)
 36f1c8a	2.387	5.6	discard	emb scale sqrt(n_embd): mean 2.387 (8 runs) — init_std=0.20 renders it harmful
+c2b825e	2.313	5.6	discard	betas=(0.85,0.95) only: mean 2.313 vs 2.305 baseline
+1dd50c8	2.247	5.6	keep	min_lr=0.0+betas=(0.85,0.95): mean 2.297 over 16 runs, min 2.247 — NEW BEST
