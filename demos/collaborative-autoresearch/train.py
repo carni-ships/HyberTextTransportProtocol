@@ -94,7 +94,7 @@ class GPT(nn.Module):
             'h': nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             'ln_f': nn.RMSNorm(config.n_embd),  # final output norm — improves bpb vs no-norm
         })
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=True)  # exp: output bias (65 params, cheap)
         # Weight tying
         self.transformer['wte'].weight = self.lm_head.weight
 
