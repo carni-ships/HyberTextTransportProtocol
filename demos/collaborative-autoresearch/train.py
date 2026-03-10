@@ -137,10 +137,10 @@ def train():
 
     # Data
     train_data, val_data = prepare_data()
-    # Epoch-style dataloader: enumerate overlapping windows (stride=32), shuffle, cycle
+    # Epoch-style dataloader: enumerate all non-overlapping windows, shuffle, cycle
     _buf = torch.tensor(list(train_data), dtype=torch.long)
     _n   = len(_buf)
-    _windows = torch.arange(0, _n - config.sequence_len - 1, 32)  # stride=32 (half seq_len)
+    _windows = torch.arange(0, _n - config.sequence_len - 1, config.sequence_len)
 
     def _epoch_loader(buf, windows, bs, seq):
         import random

@@ -58,3 +58,4 @@ e05ab62	2.307	5.5	discard	SwiGLU 8/3 hidden ratio: mean 2.307 — 4x stays best
 b6d6679	2.364	5.8	discard	n_layer=2+n_embd=96+lr=1.5e-2+warmup=35% (per 0x249f3d6c): mean 2.364 over 8 runs — much worse (fewer steps per step)
 a2fb7e8	2.309	5.8	discard	n_embd=144: mean 2.309 over 8 runs — 128 still best (fewer steps with larger model)
 2c4320d	2.247	5.5	BEST	epoch-style dataloader: mean 2.272 over 16 runs — ROBUST NEW BEST (delta -0.018 vs 2.290 baseline)
+e9a5595	2.292	5.5	discard	epoch-style stride=32 (overlapping): mean 2.292 — worse than stride=64 (2.272), non-overlapping optimal
