@@ -193,7 +193,7 @@ def train():
             lr_mul = t_frac / warmup_frac
         else:
             progress = (t_frac - warmup_frac) / (1.0 - warmup_frac)
-            lr_mul = max((1 - progress) ** 2, min_lr_frac)  # exp: quadratic decay
+            lr_mul = max(0.5 * (1 + math.cos(math.pi * progress)), min_lr_frac)
         for pg in optimizer.param_groups:
             pg['lr'] = lr * lr_mul
 
