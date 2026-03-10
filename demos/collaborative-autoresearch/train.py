@@ -25,7 +25,7 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = 128       # test: more context, fewer steps (O(T^2) attention)
+    sequence_len: int = 32        # test: shorter context for more steps
     n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
