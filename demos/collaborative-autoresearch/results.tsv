@@ -78,3 +78,4 @@ bn9qdgm	2.237	5.5	BEST	final RMSNorm + epoch-style: mean 2.272 over 16 runs — 
 b63wzw4	2.288	5.5	discard	pre-norm RMSNorm in blocks + final RMSNorm: mean 2.288 — extra overhead hurts, final-only best
 bczipom	2.296	5.5	discard	beta1=0.82 + RMSNorm: mean 2.296 — 0.80 stays optimal
 bqxi3ab	2.284	5.5	discard	init_std=0.22 + RMSNorm: mean 2.284 — 0.20 stays best
+b33vep9	2.278	5.5	discard	wd=0.15 + RMSNorm: mean 2.278 — 0.2 still optimal
