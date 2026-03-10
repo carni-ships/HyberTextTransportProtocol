@@ -100,15 +100,6 @@ class GPT(nn.Module):
 
         # GPT-2 style init: big gain per prior agents
         self._init_weights()
-        # exp: sinusoidal wpe init (structured positions; overrides random normal for wpe)
-        T, C = config.sequence_len, config.n_embd
-        pos = torch.arange(T).unsqueeze(1).float()
-        dim = torch.arange(0, C, 2).float()
-        pe = torch.zeros(T, C)
-        pe[:, 0::2] = torch.sin(pos / (10000 ** (dim / C)))
-        pe[:, 1::2] = torch.cos(pos / (10000 ** (dim / C)))
-        with torch.no_grad():
-            self.transformer['wpe'].weight.copy_(pe * 0.20)
 
     def _init_weights(self):
         for name, p in self.named_parameters():
