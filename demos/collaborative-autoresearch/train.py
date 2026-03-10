@@ -25,7 +25,7 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = 32        # test: shorter context for more steps
+    sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
@@ -143,7 +143,7 @@ def train():
         model.parameters(),
         lr=lr,
         betas=(0.85, 0.95),  # current best
-        weight_decay=0.2,
+        weight_decay=0.1,  # test: lower wd with current best config
     )
 
     # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
