@@ -29,3 +29,8 @@ e4a99e1	2.501	5.6	discard	seq_len=32: worse context, mean 2.501
 df90041	2.450	5.6	discard	std=0.18: mean 2.450 — 0.20 is sweet spot
 0269814	2.457	5.6	discard	std=0.22: mean 2.457 — 0.20 is sweet spot
 4d1161c	2.340	5.6	note	total=800 throttled (700-930 steps): 2.340 mean — schedule adaptation helps under throttle
+7697983	2.456	5.5	discard	n_embd=96: mean 2.456 — 128 still best
+e723275	2.900	5.6	discard	parallel attn+mlp (PaLM): mean 2.900 — catastrophic failure
+527fa5f	2.483	5.6	discard	MLP 2x ratio: mean 2.483 — 4x needed
+9c25dff	2.351	5.6	note	total=1000 throttled: mean 2.351 — better than total=1400 under throttle
+4e25b29	2.445	5.6	discard	RoPE: mean 2.445 throttled, inconclusive (hardware thermal)
