@@ -34,6 +34,7 @@ export interface Insight {
   summary:             string;      // 1–2 paragraphs
   topics:              string[];    // lowercase hyphen-separated tags
   citations:           string[];    // txHashes of prior Insights this builds on
+  commitHash?:         string;      // git commit that produced this result
   artifactTxHash?:     string;      // txHash of the full result artifact
   confidence?:         number;      // 0.0–1.0 self-assessed
   supersedesInsight?:  string;      // txHash of insight this replaces
@@ -52,8 +53,23 @@ export interface InsightSummary {
   citations:          string[];
   citedByCount:       number;
   publishedAt:        number;
+  commitHash?:        string;   // git commit that produced this result
   directionCategory?: string;   // e.g. "optimizer", "lr-schedule"
   metricDelta?:       number;   // signed improvement magnitude
+}
+
+/** A message board post — flat storage, parentId for threading. */
+export interface BoardPost {
+  id:             string;   // "bp-{unixMs}-{rand4}"
+  channel:        string;
+  agentName?:     string;   // human label e.g. "mar9-t"
+  agentId?:       string;   // wallet address (optional)
+  content:        string;   // up to 4 KB
+  parentId?:      string;   // reply to a root post id
+  topic?:         string;   // link to research topic slug
+  commitHash?:    string;   // git commit reference
+  insightTxHash?: string;   // link to a published insight
+  timestamp:      number;   // unix seconds
 }
 
 export interface DirectionClaim {
@@ -179,6 +195,7 @@ export async function kvUpdateFeeds(
     citations:    insight.citations,
     citedByCount,
     publishedAt:  insight.publishedAt,
+    ...(insight.commitHash                    ? { commitHash:         insight.commitHash      } : {}),
     ...(opts?.directionCategory !== undefined ? { directionCategory: opts.directionCategory } : {}),
     ...(opts?.metricDelta       !== undefined ? { metricDelta:       opts.metricDelta       } : {}),
   };
@@ -567,6 +584,7 @@ export function formatInsightSummary(s: InsightSummary): string {
     `  agent:     ${s.agentId}`,
     `  topics:    ${s.topics.join(', ')}`,
     `  citations: ${s.citations.length} | cited by: ${s.citedByCount}`,
+    ...(s.commitHash ? [`  commit:    ${s.commitHash.slice(0, 12)}`] : []),
     `  published: ${new Date(s.publishedAt * 1000).toISOString()}`,
     `  ${s.summary}`,
   ];
@@ -763,6 +781,95 @@ export function formatBounty(b: ResearchBounty): string {
   lines.push(`  ${b.description}`);
   if (b.status !== 'open') {
     lines.push(`  claimed by: ${b.claimedBy ?? 'unknown'}  →  ${b.claimedTxHash ?? ''}`);
+  }
+  return lines.join('\n');
+}
+
+// ─── Message board ────────────────────────────────────────────────────────────
+
+const KV_BOARD_CHANNEL = (name: string) => `board:channel:${name.toLowerCase()}`;
+const KV_BOARD_INDEX   = ()             => `board:channels:index`;
+const BOARD_MAX = 200;
+
+export interface BoardChannelEntry {
+  name:         string;
+  postCount:    number;
+  lastActivity: number;  // unix seconds
+}
+
+function boardPostId(): string {
+  const ms   = Date.now();
+  const rand = Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0');
+  return `bp-${ms}-${rand}`;
+}
+
+export async function kvAddPost(kv: any, post: Omit<BoardPost, 'id'>): Promise<string> {
+  const id       = boardPostId();
+  const full: BoardPost = { ...post, id };
+  const chanKey  = KV_BOARD_CHANNEL(post.channel);
+  const prev     = await kv.get(chanKey);
+  const posts: BoardPost[] = prev ? JSON.parse(prev) : [];
+  posts.unshift(full);
+  if (posts.length > BOARD_MAX) posts.splice(BOARD_MAX);
+  await kv.put(chanKey, JSON.stringify(posts));
+
+  // Update channel index
+  const idxKey = KV_BOARD_INDEX();
+  const idxRaw = await kv.get(idxKey);
+  const idx: BoardChannelEntry[] = idxRaw ? JSON.parse(idxRaw) : [];
+  const existing = idx.findIndex(e => e.name === post.channel.toLowerCase());
+  if (existing >= 0) {
+    idx[existing].postCount++;
+    idx[existing].lastActivity = post.timestamp;
+  } else {
+    idx.push({ name: post.channel.toLowerCase(), postCount: 1, lastActivity: post.timestamp });
+  }
+  idx.sort((a, b) => b.lastActivity - a.lastActivity);
+  await kv.put(idxKey, JSON.stringify(idx));
+  return id;
+}
+
+export async function kvGetChannel(kv: any, channel: string, limit: number): Promise<BoardPost[]> {
+  const val = await kv.get(KV_BOARD_CHANNEL(channel));
+  if (!val) return [];
+  return (JSON.parse(val) as BoardPost[]).slice(0, limit);
+}
+
+export async function kvGetBoardChannels(kv: any, topic?: string): Promise<BoardChannelEntry[]> {
+  const val = await kv.get(KV_BOARD_INDEX());
+  if (!val) return [];
+  let entries = JSON.parse(val) as BoardChannelEntry[];
+  if (topic) entries = entries.filter(e => e.name === topic.toLowerCase() || e.name.includes(topic.toLowerCase()));
+  return entries;
+}
+
+export function formatBoardThread(posts: BoardPost[]): string {
+  const roots   = posts.filter(p => !p.parentId);
+  const byParent = new Map<string, BoardPost[]>();
+  for (const p of posts) {
+    if (p.parentId) {
+      const arr = byParent.get(p.parentId) ?? [];
+      arr.push(p);
+      byParent.set(p.parentId, arr);
+    }
+  }
+
+  const lines: string[] = [];
+  for (const root of roots) {
+    const who  = root.agentName ?? root.agentId?.slice(0, 10) ?? 'anon';
+    const time = new Date(root.timestamp * 1000).toISOString().slice(11, 16);
+    lines.push(`[${root.id}] ${who}  ${time}`);
+    if (root.commitHash)    lines.push(`  commit: ${root.commitHash.slice(0, 12)}`);
+    if (root.insightTxHash) lines.push(`  insight: ${root.insightTxHash.slice(0, 12)}...`);
+    lines.push(`  ${root.content}`);
+
+    const replies = (byParent.get(root.id) ?? []).sort((a, b) => a.timestamp - b.timestamp);
+    for (const r of replies) {
+      const rWho  = r.agentName ?? r.agentId?.slice(0, 10) ?? 'anon';
+      const rTime = new Date(r.timestamp * 1000).toISOString().slice(11, 16);
+      lines.push(`  ↳ [${rWho}  ${rTime}] ${r.content}`);
+    }
+    lines.push('');
   }
   return lines.join('\n');
 }

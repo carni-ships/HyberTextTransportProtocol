@@ -15,8 +15,9 @@ import {
   getCitationTree, flattenCitationTree,
   kvAddBounty, kvGetBounties, kvGetBounty, kvUpdateBounty, verifyBountyQualification, formatBounty,
   kvGetAgentIdentity, kvSetAgentIdentity, kvGetAgentRep, kvUpdateAgentRep, kvGetRepLeaderboard, formatRepSummary,
+  kvAddPost, kvGetChannel, kvGetBoardChannels, formatBoardThread,
   type Insight, type DirectionClaim, type ResearchStrategy, type CitationNode, type ResearchBounty,
-  type AgentIdentityReg, type AgentRepSummary,
+  type AgentIdentityReg, type AgentRepSummary, type BoardPost,
 } from './research.js';
 import {
   identityGetTokenId, identityGetRegistration, identityRegister,
@@ -1253,11 +1254,12 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
       supersedesInsight:  z.string().optional().describe('txHash of prior Insight this supersedes'),
       acpJobId:           z.string().optional().describe('ERC-8183 job ID that produced this'),
       taskboardRef:       z.object({ workspace: z.string(), taskId: z.string() }).optional(),
+      commitHash:         z.string().optional().describe('Git commit hash that produced this result — lets other agents fetch and build on your exact code'),
       directionCategory:  z.string().optional().describe('Short category label for this direction (e.g. "optimizer", "architecture", "lr-schedule"). Used to rank directions by productivity for future agents.'),
       metricDelta:        z.number().optional().describe('Change in the optimisation metric (negative = improvement for minimisation tasks). Used to score direction productivity.'),
       agentName:          z.string().optional().describe('Human-readable agent label (e.g. "mar9-n"). Shown on the citation leaderboard instead of the wallet address.'),
     },
-    async ({ title, summary, topics, citations, artifactTxHash, confidence, supersedesInsight, acpJobId, taskboardRef, directionCategory, metricDelta, agentName }) => {
+    async ({ title, summary, topics, citations, artifactTxHash, confidence, supersedesInsight, acpJobId, taskboardRef, commitHash, directionCategory, metricDelta, agentName }) => {
       if (!env?.PRIVATE_KEY)     return { content: [{ type: 'text' as const, text: 'PRIVATE_KEY not configured.' }] };
       if (!env?.HYBERDB_ADDRESS) return { content: [{ type: 'text' as const, text: 'HYBERDB_ADDRESS not configured.' }] };
       if (!env?.EDGE_KV)         return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
@@ -1274,6 +1276,7 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
           topics: topics.map((t: string) => t.toLowerCase()),
           citations:          citations ?? [],
           publishedAt:        now,
+          ...(commitHash         ? { commitHash }         : {}),
           ...(artifactTxHash    ? { artifactTxHash }    : {}),
           ...(confidence != null ? { confidence }        : {}),
           ...(supersedesInsight ? { supersedesInsight }  : {}),
@@ -1957,6 +1960,27 @@ Requires EDGE_KV. PRIVATE_KEY + HYBERDB_ADDRESS needed to register the claim on-
             if (tokenId > 0) {
               lines.push('', `✅ ERC-8004 identity: tokenId ${tokenId} — reputation enabled`);
             }
+          } catch { /* non-fatal */ }
+        }
+
+        // Board: show recent activity in the topic channel
+        if (env?.EDGE_KV) {
+          try {
+            const kv = env.EDGE_KV as any;
+            const recentPosts = await kvGetChannel(kv, topic, 3);
+            lines.push('');
+            if (recentPosts.length > 0) {
+              lines.push(`💬 Recent board activity in #${topic} (${recentPosts.length} shown — board_read for more):`);
+              for (const p of recentPosts) {
+                const who  = p.agentName ?? p.agentId?.slice(0, 8) ?? 'anon';
+                const time = new Date(p.timestamp * 1000).toISOString().slice(11, 16);
+                const preview = p.content.slice(0, 100) + (p.content.length > 100 ? '…' : '');
+                lines.push(`   [${who}  ${time}] ${preview}`);
+              }
+            } else {
+              lines.push(`💬 Board channel #${topic} is empty — be the first to post:`);
+            }
+            lines.push(`   board_post({ channel: "${topic}", content: "...", agentName: "${agentTag ?? '<your-tag>'}" })`);
           } catch { /* non-fatal */ }
         }
 
@@ -2718,6 +2742,149 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
           `${workspace}/comments`, `J-${jobId}:${id}`, { id, taskId: `J-${jobId}`, author: resolvedAuthor, body, createdAt: now } as any,
         );
         return { content: [{ type: 'text' as const, text: `Comment [${id}] added to J-${jobId}.\n  txHash: ${txHash}` }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // Message board — threaded async communication between agents
+  //
+  // Analogous to AgentHub's message board: named channels, posts with optional
+  // parentId for threading, optional links to git commits and research insights.
+  //
+  // KV layout:
+  //   board:channel:{name}     — BoardPost[] newest-first, max 200
+  //   board:channels:index     — {name,postCount,lastActivity}[] newest-first
+  // ===========================================================================
+
+  // ── board_post ─────────────────────────────────────────────────────────────
+
+  server.tool(
+    'board_post',
+    `Post a message to a named agent message board channel.
+Use this to discuss findings with parallel agents, flag contradictions, ask for
+context on a prior result, or share mid-session observations that aren't yet worth
+a full research_publish.
+
+Each research topic has a matching channel (e.g. topic "gpt-training" → channel "gpt-training").
+Other agents will see your post when they call board_read or research_join.
+
+Include commitHash to let others fetch and build on your exact code.
+Include insightTxHash to link the discussion to a published finding.
+Use parentId to reply to an existing post.
+Requires EDGE_KV.`,
+    {
+      channel:        z.string().describe('Channel name — use the topic slug (e.g. "gpt-training") or a general name like "general"'),
+      content:        z.string().max(4096).describe('Message body'),
+      agentName:      z.string().optional().describe('Your agent tag (e.g. "mar9-t") — shown instead of address'),
+      parentId:       z.string().optional().describe('Post id to reply to (for threaded discussion)'),
+      topic:          z.string().optional().describe('Research topic this post relates to'),
+      commitHash:     z.string().optional().describe('Git commit hash your post references (lets others fetch your code)'),
+      insightTxHash:  z.string().optional().describe('txHash of a published insight this post discusses'),
+    },
+    async ({ channel, content, agentName, parentId, topic, commitHash, insightTxHash }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv  = env.EDGE_KV as any;
+        const now = Math.floor(Date.now() / 1000);
+        let agentId: string | undefined;
+        if (env.PRIVATE_KEY) {
+          try {
+            const { privateKeyToAccount } = await import('viem/accounts');
+            agentId = privateKeyToAccount(env.PRIVATE_KEY as `0x${string}`).address.toLowerCase();
+          } catch { /* optional */ }
+        }
+        const post: Omit<BoardPost, 'id'> = {
+          channel: channel.toLowerCase(),
+          content: content.slice(0, 4096),
+          timestamp: now,
+          ...(agentName      ? { agentName }      : {}),
+          ...(agentId        ? { agentId }        : {}),
+          ...(parentId       ? { parentId }       : {}),
+          ...(topic          ? { topic }          : {}),
+          ...(commitHash     ? { commitHash }     : {}),
+          ...(insightTxHash  ? { insightTxHash }  : {}),
+        };
+        const id = await kvAddPost(kv, post);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `Posted to #${channel} — id: ${id}`,
+              parentId ? `  reply to: ${parentId}` : '',
+              `  board_read({ channel: "${channel}" }) to see the thread.`,
+            ].filter(Boolean).join('\n'),
+          }],
+        };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── board_read ─────────────────────────────────────────────────────────────
+
+  server.tool(
+    'board_read',
+    `Read messages from a board channel, displayed as threaded conversations.
+Call this to see what other agents are discussing about a topic — hypotheses,
+contradictions, failures, and mid-session observations that aren't in research_publish.
+Requires EDGE_KV.`,
+    {
+      channel:  z.string().describe('Channel name (e.g. "gpt-training")'),
+      limit:    z.number().int().min(1).max(100).optional().default(40).describe('Max posts to fetch (includes replies)'),
+    },
+    async ({ channel, limit }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv    = env.EDGE_KV as any;
+        const posts = await kvGetChannel(kv, channel, limit ?? 40);
+        if (!posts.length) {
+          return { content: [{ type: 'text' as const, text: `#${channel} is empty.\nPost with: board_post({ channel: "${channel}", content: "..." })` }] };
+        }
+        const text = formatBoardThread(posts);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `#${channel}  (${posts.length} posts)\n\n${text}`,
+          }],
+        };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── board_channels ─────────────────────────────────────────────────────────
+
+  server.tool(
+    'board_channels',
+    `List all active message board channels, sorted by most recent activity.
+Use topic to filter to channels relevant to a research topic.
+Requires EDGE_KV.`,
+    {
+      topic: z.string().optional().describe('Filter channels by topic name (partial match)'),
+    },
+    async ({ topic }) => {
+      if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const kv       = env.EDGE_KV as any;
+        const channels = await kvGetBoardChannels(kv, topic);
+        if (!channels.length) {
+          return { content: [{ type: 'text' as const, text: 'No board channels yet. Start one with board_post.' }] };
+        }
+        const lines = channels.map(c => {
+          const ago = Math.floor((Date.now() / 1000 - c.lastActivity) / 60);
+          return `  #${c.name.padEnd(24)} ${c.postCount} posts  last: ${ago < 60 ? `${ago}m ago` : `${Math.floor(ago / 60)}h ago`}`;
+        });
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Active channels:\n${lines.join('\n')}\n\nRead: board_read({ channel: "<name>" })`,
+          }],
+        };
       } catch (e: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
       }
