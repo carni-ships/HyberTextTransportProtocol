@@ -27,7 +27,7 @@ class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
     sequence_len: int = 64        # confirmed best: seq=64
     n_layer:      int = 1
-    n_head:       int = 1  # exp: single-head (head_dim=128 vs 4×32) — may be faster on MPS
+    n_head:       int = 4
     n_embd:       int = 128
     dropout:      float = 0.0
 
