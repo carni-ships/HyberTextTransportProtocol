@@ -49,3 +49,5 @@ c0df303	2.294	5.5	discard	beta2=0.99: mean 2.294 (16 runs) — 0.95 still slight
 8db855e	2.297	5.5	discard	wd=0.1+batch=128: mean 2.297 — 0.2 better
 24e61dc	2.293	5.5	discard	wd=0.3+batch=128: mean 2.293 — within noise of 0.2
 a541c65	2.382	5.5	discard	wd=0.5: mean 2.382 — too high
+3e854fa	2.314	5.5	discard	warmup_frac=0.02: mean 2.314
+dcfe6c7	2.307	5.5	discard	warmup_frac=0.10: mean 2.307
