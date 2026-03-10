@@ -131,7 +131,7 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 128     # best with time-based cosine
-    lr          = 1.5e-2  # confirmed best lr
+    lr          = 2e-2    # test: linear scaling rule: lr=2e-2 for batch=128 (vs 1.5e-2 for batch=64)
     warmup_frac = 0.05    # 5% time-based warmup
     min_lr_frac = 0.0     # confirmed best: min_lr=0
 
