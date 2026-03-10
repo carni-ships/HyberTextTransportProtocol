@@ -51,9 +51,10 @@ c0df303	2.294	5.5	discard	beta2=0.99: mean 2.294 (16 runs) — 0.95 still slight
 a541c65	2.382	5.5	discard	wd=0.5: mean 2.382 — too high
 3e854fa	2.314	5.5	discard	warmup_frac=0.02: mean 2.314
 dcfe6c7	2.307	5.5	discard	warmup_frac=0.10: mean 2.307
-7ea575d	2.255	5.5	BEST	batch=128+lr=2e-2+betas=(0.80,0.95)+time-cosine: mean 2.290 over 24 runs under throttle — ROBUST BEST
+7ea575d	2.255	5.5	keep	batch=128+lr=2e-2+betas=(0.80,0.95)+time-cosine: mean 2.290 over 24 runs under throttle — prev BEST
 063853b	2.292	5.5	discard	std=0.24: mean 2.292 — similar to 0.20 but 0.20 is baseline
 f548884	2.314	5.5	discard	std=0.28: mean 2.314 — 0.20 stays best
 e05ab62	2.307	5.5	discard	SwiGLU 8/3 hidden ratio: mean 2.307 — 4x stays best
 b6d6679	2.364	5.8	discard	n_layer=2+n_embd=96+lr=1.5e-2+warmup=35% (per 0x249f3d6c): mean 2.364 over 8 runs — much worse (fewer steps per step)
 a2fb7e8	2.309	5.8	discard	n_embd=144: mean 2.309 over 8 runs — 128 still best (fewer steps with larger model)
+2c4320d	2.247	5.5	BEST	epoch-style dataloader: mean 2.273 over 8 runs — NEW BEST (delta -0.017 vs 2.290 baseline)
