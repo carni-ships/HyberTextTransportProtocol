@@ -133,7 +133,7 @@ def train():
     batch_size  = 128     # best with time-based cosine
     lr          = 2e-2    # optimal for batch=128
     warmup_frac = 0.05    # confirmed best for 1-layer + epoch-style
-    min_lr_frac = 0.05    # exp: min_lr=5% of base (keeps some lr at end)
+    min_lr_frac = 0.0     # confirmed best: min_lr=0
 
     # Data
     train_data, val_data = prepare_data()

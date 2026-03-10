@@ -67,3 +67,4 @@ bb42dvk	2.299	5.5	discard	n_embd=112: mean 2.299 — 128 still optimal (capacity
 bip2403	2.292	5.5	discard	clip_grad=2.0: mean 2.292 — 1.0 still best
 b3th1d7	2.358	5.5	discard	n_head=2 (64-dim heads): mean ~2.358 (3 runs) — n_head=4 definitively better
 b6mqitf	2.337	5.5	discard	c_attn bias=True (QKV bias): mean ~2.337 (6 runs) — no-bias stays best
+bvdskn6	2.310	5.5	discard	min_lr_frac=0.05: mean 2.310 — min_lr=0.0 confirmed best
