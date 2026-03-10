@@ -63,3 +63,4 @@ e0a0bdb	2.289	5.5	discard	warmup_frac=0.08 + epoch-style: mean 2.289 — 0.05 st
 2a0d451	2.360	5.5	discard	label_smoothing=0.05: mean ~2.360 (2 runs 2.340+2.381) — model underfits, smoothing hurts
 35ddf86	2.294	5.5	discard	selective wd (decay=2D,skip=emb): mean 2.294 — uniform wd=0.2 for all params still better
 bqf6dn0	2.302	5.5	discard	beta1=0.78: mean 2.302 — 0.80 is true sweet spot
+bb42dvk	2.299	5.5	discard	n_embd=112: mean 2.299 — 128 still optimal (capacity > steps tradeoff)
