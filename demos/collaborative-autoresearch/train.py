@@ -103,9 +103,9 @@ class GPT(nn.Module):
     def _init_weights(self):
         for name, p in self.named_parameters():
             if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name):
-                nn.init.normal_(p, mean=0.0, std=0.04)
+                nn.init.normal_(p, mean=0.0, std=0.08)  # test higher std
             elif 'proj' in name or 'down' in name:
-                nn.init.normal_(p, mean=0.0, std=0.01)
+                nn.init.normal_(p, mean=0.0, std=0.02)
 
     def forward(self, idx):
         B, T = idx.size()
