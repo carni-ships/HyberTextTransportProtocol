@@ -71,15 +71,17 @@ class SwiGLU(nn.Module):
 
 
 class Block(nn.Module):
-    """No LayerNorm — prior agents found it improves throughput & bpb at 1L"""
+    """Pre-norm RMSNorm — exp: test with final RMSNorm already in place"""
     def __init__(self, config: GPTConfig):
         super().__init__()
+        self.ln1  = nn.RMSNorm(config.n_embd)
         self.attn = CausalSelfAttention(config)
+        self.ln2  = nn.RMSNorm(config.n_embd)
         self.mlp  = SwiGLU(config)
 
     def forward(self, x):
-        x = x + self.attn(x)
-        x = x + self.mlp(x)
+        x = x + self.attn(self.ln1(x))
+        x = x + self.mlp(self.ln2(x))
         return x
 
 
