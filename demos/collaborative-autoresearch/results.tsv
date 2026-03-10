@@ -57,7 +57,7 @@ f548884	2.314	5.5	discard	std=0.28: mean 2.314 — 0.20 stays best
 e05ab62	2.307	5.5	discard	SwiGLU 8/3 hidden ratio: mean 2.307 — 4x stays best
 b6d6679	2.364	5.8	discard	n_layer=2+n_embd=96+lr=1.5e-2+warmup=35% (per 0x249f3d6c): mean 2.364 over 8 runs — much worse (fewer steps per step)
 a2fb7e8	2.309	5.8	discard	n_embd=144: mean 2.309 over 8 runs — 128 still best (fewer steps with larger model)
-2c4320d	2.247	5.5	keep	epoch-style dataloader: mean 2.272 over 16 runs — prev BEST
+2c4320d	2.247	5.5	keep	epoch-style dataloader: mean 2.272 over 16 runs
 e9a5595	2.292	5.5	discard	epoch-style stride=32 (overlapping): mean 2.292 — worse than stride=64 (2.272), non-overlapping optimal
 e0a0bdb	2.289	5.5	discard	warmup_frac=0.08 + epoch-style: mean 2.289 — 0.05 still best
 2a0d451	2.360	5.5	discard	label_smoothing=0.05: mean ~2.360 (2 runs 2.340+2.381) — model underfits, smoothing hurts
@@ -74,7 +74,8 @@ b48thl8	2.316	5.5	discard	warmup_frac=0.03: mean 2.316 (6 runs) — 0.05 confirm
 bb1x20j	2.308	5.5	discard	lr=2.2e-2 + epoch-style: mean 2.308 (6 runs) — 2e-2 optimal
 b09is0e	2.287	5.5	discard	batch=192 + epoch-style: mean 2.287 (8 runs) — 128 still best (high variance)
 bvqy264	2.243	5.5	keep	final ln_f (LayerNorm) + epoch-style: mean 2.265 over 16 runs — prev BEST
-bn9qdgm	2.237	5.5	BEST	final RMSNorm + epoch-style: mean 2.272 over 16 runs — within noise of ln_f (2.265); 8-run mean 2.261 cool vs 2.283 throttled
+bn9qdgm	2.237	5.5	keep	final RMSNorm + epoch-style: mean 2.272 over 16 runs — was best before tensor precompute
+bvdgdh0	2.198	5.5	BEST	pre-built tensor epoch loader: mean 2.247 over 8 runs — MASSIVE NEW BEST (min 2.198!)
 b63wzw4	2.288	5.5	discard	pre-norm RMSNorm in blocks + final RMSNorm: mean 2.288 — extra overhead hurts, final-only best
 bczipom	2.296	5.5	discard	beta1=0.82 + RMSNorm: mean 2.296 — 0.80 stays optimal
 bqxi3ab	2.284	5.5	discard	init_std=0.22 + RMSNorm: mean 2.284 — 0.20 stays best
