@@ -25,7 +25,7 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = 160       # best on MPS: beats 64/96/128/192
+    sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
@@ -34,6 +34,7 @@ class GPTConfig:
 # ─── Model ────────────────────────────────────────────────────────────────────
 
 class CausalSelfAttention(nn.Module):
+    """SDPA (scaled_dot_product_attention) — per 0x703cc308 finding with batch=64."""
     def __init__(self, config: GPTConfig):
         super().__init__()
         assert config.n_embd % config.n_head == 0
@@ -43,10 +44,6 @@ class CausalSelfAttention(nn.Module):
         self.c_proj  = nn.Linear(config.n_embd, config.n_embd, bias=False)
         self.dropout = config.dropout
 
-        # Causal mask
-        T = config.sequence_len
-        self.register_buffer("mask", torch.tril(torch.ones(T, T)).view(1, 1, T, T))
-
     def forward(self, x):
         B, T, C = x.size()
         q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
@@ -54,12 +51,9 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
 
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float('-inf'))
-        att = F.softmax(att, dim=-1)
-        att = F.dropout(att, p=self.dropout, training=self.training)
-        y   = att @ v
-        y   = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True,
+                                           dropout_p=self.dropout if self.training else 0.0)
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
         return self.c_proj(y)
 
 
@@ -136,8 +130,8 @@ def train():
     else:
         device = "cpu"
     config      = GPTConfig()
-    batch_size  = 16
-    lr          = 1.5e-2  # best lr found on MPS (1e-2 avg 2.378, 1.5e-2 avg 2.287)
+    batch_size  = 64      # MPS sweet spot per 0x703cc308: batch=64+SDPA
+    lr          = 1.5e-2  # confirmed best lr
 
     # Data
     train_data, val_data = prepare_data()
@@ -152,12 +146,12 @@ def train():
         weight_decay=0.2,
     )
 
-    # Cosine LR schedule with warmup (helps with proper init per prior agents)
-    def get_lr(step, warmup=100, total=3000):
+    # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
+    def get_lr(step, warmup=50, total=1400):
         if step < warmup:
             return step / warmup
-        progress = (step - warmup) / (total - warmup)
-        return 0.5 * (1 + math.cos(math.pi * progress))
+        progress = min((step - warmup) / (total - warmup), 1.0)
+        return max(0.5 * (1 + math.cos(math.pi * progress)), 0.1)
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, get_lr)
 
