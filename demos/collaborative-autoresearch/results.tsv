@@ -35,3 +35,6 @@ e723275	2.900	5.6	discard	parallel attn+mlp (PaLM): mean 2.900 — catastrophic 
 9c25dff	2.351	5.6	note	total=1000 throttled: mean 2.351 — better than total=1400 under throttle
 4e25b29	2.445	5.6	discard	RoPE: mean 2.445 throttled, inconclusive (hardware thermal)
 0e25338	2.562	5.6	discard	batch=32: mean 2.562 — batch=64 stays best
+bdbdebf	2.337	5.5	discard	batch=128+time-based cosine: mean 2.337 throttled (worse than step-based 2.297 unthrottled)
+8c18f39	2.366	5.6	discard	time-based cosine+batch=64: mean 2.366 throttled
+6016870	2.244	5.5	keep	batch=128+lr=2e-2+time-based cosine: mean 2.303 over 16 runs throttled — robust!
