@@ -71,18 +71,15 @@ class SwiGLU(nn.Module):
 
 
 class Block(nn.Module):
-    """No norm in blocks — final RMSNorm at output; exp: LayerScale (γ_attn, γ_mlp init=0.1)"""
+    """No norm in blocks — final RMSNorm at output (pre-norm in blocks hurts throughput)"""
     def __init__(self, config: GPTConfig):
         super().__init__()
         self.attn = CausalSelfAttention(config)
         self.mlp  = SwiGLU(config)
-        # LayerScale: learnable per-channel scalars, init small
-        self.ls_attn = nn.Parameter(torch.full((config.n_embd,), 0.1))
-        self.ls_mlp  = nn.Parameter(torch.full((config.n_embd,), 0.1))
 
     def forward(self, x):
-        x = x + self.ls_attn * self.attn(x)
-        x = x + self.ls_mlp  * self.mlp(x)
+        x = x + self.attn(x)
+        x = x + self.mlp(x)
         return x
 
 
