@@ -131,7 +131,7 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 64      # MPS sweet spot per 0x703cc308: batch=64+SDPA
-    lr          = 2.5e-2  # test: higher lr with init_std=0.20 base
+    lr          = 1.5e-2  # confirmed best lr
 
     # Data
     train_data, val_data = prepare_data()
