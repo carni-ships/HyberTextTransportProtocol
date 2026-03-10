@@ -72,3 +72,4 @@ ba24rbm	2.432	5.5	discard	wpe_std=0.05 (small pos emb init): mean ~2.432 (2 runs
 b37cwcv	2.342	5.5	discard	seq_len=80: mean ~2.342 (3 runs) — fewer steps, 64 stays best
 b48thl8	2.316	5.5	discard	warmup_frac=0.03: mean 2.316 (6 runs) — 0.05 confirmed best
 bb1x20j	2.308	5.5	discard	lr=2.2e-2 + epoch-style: mean 2.308 (6 runs) — 2e-2 optimal
+b09is0e	2.287	5.5	discard	batch=192 + epoch-style: mean 2.287 (8 runs) — 128 still best (high variance)
