@@ -143,18 +143,19 @@ def train():
     _buf = torch.tensor(list(train_data), dtype=torch.long)
     _n   = len(_buf)
     _windows = torch.arange(0, _n - config.sequence_len - 1, config.sequence_len)
+    # Pre-build all (x, y) pairs as a big tensor for zero-overhead batching
+    _all_x = torch.stack([_buf[s:s+config.sequence_len]   for s in _windows])
+    _all_y = torch.stack([_buf[s+1:s+config.sequence_len+1] for s in _windows])
 
-    def _epoch_loader(buf, windows, bs, seq):
-        import random
+    def _epoch_loader(all_x, all_y, bs):
+        n = len(all_x)
         while True:
-            idx = windows[torch.randperm(len(windows))]
-            for start in range(0, len(idx) - bs + 1, bs):
-                batch_starts = idx[start:start+bs]
-                x = torch.stack([buf[s : s + seq]     for s in batch_starts])
-                y = torch.stack([buf[s + 1 : s + seq + 1] for s in batch_starts])
-                yield x, y
+            perm = torch.randperm(n)
+            for start in range(0, n - bs + 1, bs):
+                idx = perm[start:start+bs]
+                yield all_x[idx], all_y[idx]
 
-    loader = _epoch_loader(_buf, _windows, batch_size, config.sequence_len)
+    loader = _epoch_loader(_all_x, _all_y, batch_size)
 
     # Model + optimizer
     model = GPT(config).to(device)
