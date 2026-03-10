@@ -144,7 +144,7 @@ def train():
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
-        betas=(0.80, 0.99),  # test: beta2=0.99
+        betas=(0.80, 0.95),  # confirmed sweet spot
         weight_decay=0.2,
     )
 
