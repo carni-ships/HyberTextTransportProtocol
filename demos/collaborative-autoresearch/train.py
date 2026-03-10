@@ -178,7 +178,7 @@ def train():
 
         x, y = x.to(device), y.to(device)
         logits = model(x)
-        loss   = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
+        loss   = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1), label_smoothing=0.05)
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
