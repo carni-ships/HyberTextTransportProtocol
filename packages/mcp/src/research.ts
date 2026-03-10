@@ -396,11 +396,18 @@ export const KV_LEADERBOARD = (topic: string) => `research:leaderboard:${topic.t
 
 export interface LeaderboardEntry {
   agentId:       string;
+  name?:         string;   // human-readable label, e.g. "mar9-n"
   count:         number;
+  citationScore: number;   // Σ citedByCount across all findings — impact metric
   lastPublished: number;
 }
 
-export async function updateLeaderboard(kv: any, topic: string, agentId: string): Promise<void> {
+export async function updateLeaderboard(
+  kv: any,
+  topic: string,
+  agentId: string,
+  opts: { name?: string; citationDelta?: number } = {},
+): Promise<void> {
   const key  = KV_LEADERBOARD(topic);
   const prev = await kv.get(key);
   const board: LeaderboardEntry[] = prev ? JSON.parse(prev) : [];
@@ -409,17 +416,93 @@ export async function updateLeaderboard(kv: any, topic: string, agentId: string)
   if (existing) {
     existing.count++;
     existing.lastPublished = now;
+    if (opts.name) existing.name = opts.name;
+    existing.citationScore = (existing.citationScore ?? 0) + (opts.citationDelta ?? 0);
   } else {
-    board.push({ agentId, count: 1, lastPublished: now });
+    board.push({ agentId, name: opts.name, count: 1, citationScore: opts.citationDelta ?? 0, lastPublished: now });
   }
-  board.sort((a, b) => b.count - a.count);
+  // Sort by citation score desc, then publish count desc
+  board.sort((a, b) => (b.citationScore - a.citationScore) || (b.count - a.count));
   await kv.put(key, JSON.stringify(board));
+}
+
+/** Increment the citation score of the agents whose findings were cited. */
+export async function updateCitationScores(kv: any, topic: string, citedTxHashes: string[]): Promise<void> {
+  if (!citedTxHashes.length) return;
+  await Promise.all(citedTxHashes.map(async (txHash) => {
+    const summaryRaw = await kv.get(KV.insightSummary(txHash));
+    if (!summaryRaw) return;
+    const summary: InsightSummary = JSON.parse(summaryRaw);
+    // Increment citedByCount on the cached summary
+    summary.citedByCount = (summary.citedByCount ?? 0) + 1;
+    await kv.put(KV.insightSummary(txHash), JSON.stringify(summary));
+    // Increment leaderboard citation score for the cited agent
+    const key  = KV_LEADERBOARD(topic);
+    const prev = await kv.get(key);
+    if (!prev) return;
+    const board: LeaderboardEntry[] = JSON.parse(prev);
+    const entry = board.find(e => e.agentId.toLowerCase() === summary.agentId.toLowerCase());
+    if (entry) {
+      entry.citationScore = (entry.citationScore ?? 0) + 1;
+      board.sort((a, b) => (b.citationScore - a.citationScore) || (b.count - a.count));
+      await kv.put(key, JSON.stringify(board));
+    }
+  }));
 }
 
 export async function getLeaderboard(kv: any, topic: string, limit: number): Promise<LeaderboardEntry[]> {
   const val = await kv.get(KV_LEADERBOARD(topic));
   if (!val) return [];
   return (JSON.parse(val) as LeaderboardEntry[]).slice(0, limit);
+}
+
+// ─── Citation graph traversal ─────────────────────────────────────────────────
+
+export interface CitationNode {
+  txHash:      string;
+  title:       string;
+  agentId:     string;
+  name?:       string;
+  publishedAt: number;
+  children:    CitationNode[];   // findings that cite this one
+}
+
+/**
+ * Walk the citedBy index from a root txHash up to maxDepth levels.
+ * Returns a tree of all findings that descend from the root.
+ */
+export async function getCitationTree(
+  kv: any,
+  rootTxHash: string,
+  maxDepth = 3,
+): Promise<CitationNode | null> {
+  const rootRaw = await kv.get(KV.insightSummary(rootTxHash));
+  if (!rootRaw) return null;
+  const root: InsightSummary = JSON.parse(rootRaw);
+
+  async function buildNode(txHash: string, depth: number): Promise<CitationNode> {
+    const raw  = await kv.get(KV.insightSummary(txHash));
+    const s: InsightSummary = raw ? JSON.parse(raw) : { txHash, title: '(unknown)', agentId: '', publishedAt: 0, topics: [], citations: [], citedByCount: 0, summary: '' };
+    const children: CitationNode[] = [];
+    if (depth < maxDepth) {
+      const citedByRaw = await kv.get(KV.citedBy(txHash));
+      const citedBy: string[] = citedByRaw ? JSON.parse(citedByRaw) : [];
+      for (const childHash of citedBy.slice(0, 10)) {  // cap breadth at 10
+        children.push(await buildNode(childHash, depth + 1));
+      }
+    }
+    return { txHash, title: s.title, agentId: s.agentId, publishedAt: s.publishedAt, children };
+  }
+
+  return buildNode(rootTxHash, 0);
+}
+
+/** Flatten a citation tree to a list of (depth, node) pairs for display. */
+export function flattenCitationTree(node: CitationNode, depth = 0): Array<{ depth: number; node: CitationNode }> {
+  return [
+    { depth, node },
+    ...node.children.flatMap(child => flattenCitationTree(child, depth + 1)),
+  ];
 }
 
 // ─── Insight fetcher ──────────────────────────────────────────────────────────

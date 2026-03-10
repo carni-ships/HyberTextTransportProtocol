@@ -12,7 +12,8 @@ import {
   formatInsightSummary, formatStrategy, formatClaim,
   getUnclaimedDirections, updateLeaderboard, getLeaderboard,
   trackDirectionFitness, getDirectionFitness, detectStagnation,
-  type Insight, type DirectionClaim, type ResearchStrategy,
+  updateCitationScores, getCitationTree, flattenCitationTree,
+  type Insight, type DirectionClaim, type ResearchStrategy, type CitationNode,
 } from './research.js';
 import {
   acpReadJob, acpWrite, acpJobCount, erc20Approve, waitReceipt,
@@ -1020,8 +1021,9 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
       taskboardRef:       z.object({ workspace: z.string(), taskId: z.string() }).optional(),
       directionCategory:  z.string().optional().describe('Short category label for this direction (e.g. "optimizer", "architecture", "lr-schedule"). Used to rank directions by productivity for future agents.'),
       metricDelta:        z.number().optional().describe('Change in the optimisation metric (negative = improvement for minimisation tasks). Used to score direction productivity.'),
+      agentName:          z.string().optional().describe('Human-readable agent label (e.g. "mar9-n"). Shown on the citation leaderboard instead of the wallet address.'),
     },
-    async ({ title, summary, topics, citations, artifactTxHash, confidence, supersedesInsight, acpJobId, taskboardRef, directionCategory, metricDelta }) => {
+    async ({ title, summary, topics, citations, artifactTxHash, confidence, supersedesInsight, acpJobId, taskboardRef, directionCategory, metricDelta, agentName }) => {
       if (!env?.PRIVATE_KEY)     return { content: [{ type: 'text' as const, text: 'PRIVATE_KEY not configured.' }] };
       if (!env?.HYBERDB_ADDRESS) return { content: [{ type: 'text' as const, text: 'HYBERDB_ADDRESS not configured.' }] };
       if (!env?.EDGE_KV)         return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
@@ -1062,7 +1064,9 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
         await Promise.all([
           kvUpdateFeeds(kv, insight),
           kvUpdateCitedBy(kv, citations ?? [], txHash),
-          ...insight.topics.map((t: string) => updateLeaderboard(kv, t, agentId)),
+          ...insight.topics.map((t: string) => updateLeaderboard(kv, t, agentId, { name: agentName })),
+          // Increment citation scores of agents whose findings were cited
+          ...insight.topics.map((t: string) => updateCitationScores(kv, t, citations ?? [])),
           // Track direction fitness for bandit-style direction scoring
           ...(directionCategory != null && metricDelta != null
             ? insight.topics.map((t: string) => trackDirectionFitness(kv, t, directionCategory, metricDelta))
@@ -1285,6 +1289,44 @@ Use to navigate the knowledge graph and understand lineage of a finding.`,
         }
 
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_citation_tree ─────────────────────────────────────────────────
+
+  server.tool(
+    'research_citation_tree',
+    `Walk the forward citation graph from a root insight up to maxDepth levels.
+Returns all findings that descend from (i.e. built upon) the given txHash.
+Useful for tracing the intellectual lineage of a discovery and identifying
+the most influential findings in the knowledge graph.`,
+    {
+      txHash:   z.string().regex(/^0x[a-fA-F0-9]{64}$/).describe('Root insight txHash'),
+      maxDepth: z.number().int().min(1).max(5).optional().default(3),
+    },
+    async ({ txHash, maxDepth }) => {
+      try {
+        const kv = env?.EDGE_KV as any;
+        if (!kv) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+        const tree = await getCitationTree(kv, txHash, maxDepth);
+        if (!tree) return { content: [{ type: 'text' as const, text: `No insight found for ${txHash}` }] };
+        const flat = flattenCitationTree(tree);
+        const lines = flat.map(({ depth, node }) => {
+          const indent = '  '.repeat(depth);
+          const prefix = depth === 0 ? '◉' : '└─';
+          const ago    = Math.floor((Date.now() / 1000 - node.publishedAt) / 3600);
+          return `${indent}${prefix} [${node.txHash.slice(0, 8)}] ${node.title}  (${ago}h ago)`;
+        });
+        const totalDescendants = flat.length - 1;
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Citation tree for ${txHash.slice(0, 10)}… (${totalDescendants} descendant${totalDescendants !== 1 ? 's' : ''}, depth≤${maxDepth}):\n\n${lines.join('\n')}`,
+          }],
+        };
       } catch (e: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
       }
@@ -1740,9 +1782,12 @@ Good for a quick orientation before joining or to monitor progress mid-session.`
               })
             : ['   None active — great time to join!']),
           ``,
-          `🏆 Top contributors:`,
+          `🏆 Top contributors (ranked by citation score):`,
           ...(board.length > 0
-            ? board.map((e, i) => `   ${i + 1}. ${e.agentId.slice(0, 10)}...  ${e.count} findings`)
+            ? board.map((e, i) => {
+                const label = e.name ?? `${e.agentId.slice(0, 8)}…`;
+                return `   ${i + 1}. ${label.padEnd(12)}  ${e.count} finding${e.count !== 1 ? 's' : ''}  ${e.citationScore ?? 0} citation${(e.citationScore ?? 0) !== 1 ? 's' : ''}`;
+              })
             : ['   None yet.']),
           ``,
           ...(fitness.length > 0 ? [

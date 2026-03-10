@@ -909,6 +909,44 @@ export default {
       }
     }
 
+    // ── Research API ─────────────────────────────────────────────────────────
+    // GET /research/api?topic=gpt-training&limit=50
+    // Returns machine-readable JSON for the live monitoring dashboard.
+    if (url.pathname === '/research/api') {
+      const corsHeaders = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
+      if (request.method !== 'GET') {
+        return new Response('Method not allowed', { status: 405, headers: corsHeaders });
+      }
+
+      const topic = url.searchParams.get('topic') ?? 'gpt-training';
+      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10), 50);
+
+      if (!env.EDGE_KV) {
+        return new Response(JSON.stringify({ error: 'KV not configured' }), { status: 503, headers: corsHeaders });
+      }
+
+      const kv = env.EDGE_KV as any;
+      const { kvGetFeed, kvGetClaims, getLeaderboard } = await import('./research.js');
+
+      const [feed, claims, leaderboard] = await Promise.all([
+        kvGetFeed(kv, topic, limit),
+        kvGetClaims(kv, topic),
+        getLeaderboard(kv, topic, 20),
+      ]);
+
+      return new Response(JSON.stringify({ topic, feed, claims, leaderboard, fetchedAt: Date.now() }), {
+        headers: corsHeaders,
+      });
+    }
+
     // ── Publish endpoint ─────────────────────────────────────────────────────
     if (url.pathname === '/publish' && request.method === 'POST') {
       try {
