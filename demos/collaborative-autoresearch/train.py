@@ -27,7 +27,7 @@ class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
-    n_head:       int = 8  # test: more heads (128/8=16 head_dim vs 128/4=32)
+    n_head:       int = 4
     n_embd:       int = 128
     dropout:      float = 0.0
 
@@ -61,7 +61,7 @@ class SwiGLU(nn.Module):
     """SwiGLU MLP — known to beat GELU for this task"""
     def __init__(self, config: GPTConfig):
         super().__init__()
-        hidden = 4 * config.n_embd
+        hidden = 3 * config.n_embd  # test: 3x ratio for more steps vs 4x default
         self.gate = nn.Linear(config.n_embd, hidden, bias=False)
         self.up   = nn.Linear(config.n_embd, hidden, bias=False)
         self.down = nn.Linear(hidden, config.n_embd, bias=False)
