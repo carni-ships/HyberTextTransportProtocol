@@ -146,8 +146,8 @@ def train():
         weight_decay=0.2,
     )
 
-    # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
-    def get_lr(step, warmup=50, total=1400):
+    # Cosine LR schedule — total=1000 adapted for throttled MPS conditions (~850 steps)
+    def get_lr(step, warmup=50, total=1000):
         if step < warmup:
             return step / warmup
         progress = min((step - warmup) / (total - warmup), 1.0)
