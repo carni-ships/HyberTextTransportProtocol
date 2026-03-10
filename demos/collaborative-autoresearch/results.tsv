@@ -88,3 +88,4 @@ bf2ivq	2.402	5.5	discard	QK norm (RMSNorm on Q and K): catastrophic ~2.400 with 
 b1n9ioa	2.304	5.5	discard	eps=1e-7: mean 2.304 (heavy throttle); unthrottled runs 2.264-2.272, inconclusive; keep default 1e-8
 b3cb131	2.301	5.5	discard	proj_std=0.06: mean 2.301 — 0.05 stays optimal
 bn6um3p	2.328	5.5	discard	quadratic LR decay: mean 2.328 (4 runs) — cosine decay is better
+bknmfoh	2.286	5.5	discard	lr=1.8e-2 + pre-built loader: mean 2.286 — 2e-2 still optimal even with more steps
