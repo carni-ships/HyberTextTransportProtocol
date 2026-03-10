@@ -187,16 +187,14 @@ def train():
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-        # Time-based 2-cycle cosine LR: exp: 2 cosine half-cycles after warmup
+        # Time-based cosine LR: adapts to actual step time / throttle state
         elapsed_train = time.perf_counter() - train_start
         t_frac = min(elapsed_train / TIME_BUDGET, 1.0)
         if t_frac < warmup_frac:
             lr_mul = t_frac / warmup_frac
         else:
             progress = (t_frac - warmup_frac) / (1.0 - warmup_frac)
-            # 2 cycles: progress goes 0→1 over full decay, cycle within that
-            cycle_progress = (progress * 2) % 1.0
-            lr_mul = max(0.5 * (1 + math.cos(math.pi * cycle_progress)), min_lr_frac)
+            lr_mul = max(0.5 * (1 + math.cos(math.pi * progress)), min_lr_frac)
         for pg in optimizer.param_groups:
             pg['lr'] = lr * lr_mul
 
