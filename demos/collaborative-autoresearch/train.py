@@ -27,7 +27,7 @@ class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
-    n_head:       int = 4
+    n_head:       int = 8  # test: more heads (128/8=16 head_dim vs 128/4=32)
     n_embd:       int = 128
     dropout:      float = 0.0
 
@@ -131,7 +131,7 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 64      # MPS sweet spot per 0x703cc308: batch=64+SDPA
-    lr          = 2e-2    # test lr=2e-2 with new best config (0.85,0.95)+min_lr=0
+    lr          = 1.5e-2  # confirmed best lr
 
     # Data
     train_data, val_data = prepare_data()
