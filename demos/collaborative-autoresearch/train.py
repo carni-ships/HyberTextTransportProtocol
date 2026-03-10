@@ -130,8 +130,10 @@ def train():
     else:
         device = "cpu"
     config      = GPTConfig()
-    batch_size  = 64      # MPS sweet spot per 0x703cc308: batch=64+SDPA
+    batch_size  = 128     # per 0xa6dad07e: batch=128 + time-based cosine → 2.290 avg
     lr          = 1.5e-2  # confirmed best lr
+    warmup_frac = 0.05    # 5% time-based warmup
+    min_lr_frac = 0.0     # confirmed best: min_lr=0
 
     # Data
     train_data, val_data = prepare_data()
@@ -146,16 +148,7 @@ def train():
         weight_decay=0.2,
     )
 
-    # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
-    def get_lr(step, warmup=50, total=1400):
-        if step < warmup:
-            return step / warmup
-        progress = min((step - warmup) / (total - warmup), 1.0)
-        return max(0.5 * (1 + math.cos(math.pi * progress)), 0.0)
-
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, get_lr)
-
-    # Training loop (time-budgeted)
+    # Training loop — time-based cosine LR (adapts to actual hardware speed)
     model.train()
     total_loss     = 0.0
     num_steps      = 0
@@ -175,14 +168,24 @@ def train():
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+        # Time-based cosine LR: adapts to actual step time / throttle state
+        elapsed_train = time.perf_counter() - train_start
+        t_frac = min(elapsed_train / TIME_BUDGET, 1.0)
+        if t_frac < warmup_frac:
+            lr_mul = t_frac / warmup_frac
+        else:
+            progress = (t_frac - warmup_frac) / (1.0 - warmup_frac)
+            lr_mul = max(0.5 * (1 + math.cos(math.pi * progress)), min_lr_frac)
+        for pg in optimizer.param_groups:
+            pg['lr'] = lr * lr_mul
+
         optimizer.step()
-        scheduler.step()
 
         total_loss   += loss.item()
         num_steps    += 1
         total_tokens += batch_size * config.sequence_len
 
-        elapsed_train = time.perf_counter() - train_start
         if elapsed_train >= TIME_BUDGET:
             break
 
