@@ -110,9 +110,7 @@ class GPT(nn.Module):
     def forward(self, idx):
         B, T = idx.size()
         pos  = torch.arange(T, device=idx.device).unsqueeze(0)
-        # Scale (wte+wpe) by sqrt(n_embd) per 0x3ad40814: keeps residual stream magnitude consistent
-        scale = self.config.n_embd ** 0.5
-        x    = (self.transformer['wte'](idx) + self.transformer['wpe'](pos)) * scale
+        x    = self.transformer['wte'](idx) + self.transformer['wpe'](pos)
         x    = self.transformer['drop'](x)
         for block in self.transformer['h']:
             x = block(x)
