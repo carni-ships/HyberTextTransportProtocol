@@ -28,7 +28,7 @@ class GPTConfig:
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
     n_head:       int = 4
-    n_embd:       int = 128
+    n_embd:       int = 160  # test: more capacity, still lr=1.5e-2 baseline
     dropout:      float = 0.0
 
 # ─── Model ────────────────────────────────────────────────────────────────────
