@@ -85,3 +85,4 @@ b2kc96f	2.271	5.5	discard	beta2=0.93 + RMSNorm+epoch: mean 2.271 — 0.95 stays 
 note	2.315	6.0	discard	bfloat16 autocast on MPS: slower + worse (2.315, 416 steps) — overhead hurts
 bf2ivq	2.402	5.5	discard	QK norm (RMSNorm on Q and K): catastrophic ~2.400 with 309-406 steps — overhead is huge
 b1n9ioa	2.304	5.5	discard	eps=1e-7: mean 2.304 (heavy throttle); unthrottled runs 2.264-2.272, inconclusive; keep default 1e-8
+b3cb131	2.301	5.5	discard	proj_std=0.06: mean 2.301 — 0.05 stays optimal
