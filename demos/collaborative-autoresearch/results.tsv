@@ -106,3 +106,4 @@ cd1aec2	2.297	5.5	discard	learned wpe_scale: mean 2.297 (8 runs) — fixed scale
 b0dea93	2.305	5.5	discard	torch.compile(aot_eager): mean 2.305 (16 runs) — overhead hurts; no speedup vs eager on MPS
 37bbbc3	2.278	5.5	discard	SwiGLU 3.5x hidden (448): mean 2.278 (16 runs, throttled, 555 steps avg) — 4x stays best under cool conditions
 note	2.342	5.5	discard	SiLU-only 6x MLP (no up branch): 2.342 single run — gating critical; not committed
+92bc279	2.295	5.5	discard	gate/up init std=0.10: mean 2.295 (16 runs) — std=0.20 stays best for all
