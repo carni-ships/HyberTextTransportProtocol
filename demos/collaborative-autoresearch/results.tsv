@@ -28,3 +28,4 @@ e4a99e1	2.501	5.6	discard	seq_len=32: worse context, mean 2.501
 94c8a02	2.407	5.6	discard	wd=0.1: mean 2.407 — wd=0.2 still best
 df90041	2.450	5.6	discard	std=0.18: mean 2.450 — 0.20 is sweet spot
 0269814	2.457	5.6	discard	std=0.22: mean 2.457 — 0.20 is sweet spot
+4d1161c	2.340	5.6	note	total=800 throttled (700-930 steps): 2.340 mean — schedule adaptation helps under throttle
