@@ -28,7 +28,7 @@ class GPTConfig:
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
     n_head:       int = 4
-    n_embd:       int = 160  # test: more capacity, still lr=1.5e-2 baseline
+    n_embd:       int = 128
     dropout:      float = 0.0
 
 # ─── Model ────────────────────────────────────────────────────────────────────
@@ -146,8 +146,8 @@ def train():
         weight_decay=0.2,
     )
 
-    # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
-    def get_lr(step, warmup=50, total=1400):
+    # Cosine LR schedule — MPS actual steps ~1100-1400; try total=1100 to avoid flat tail
+    def get_lr(step, warmup=50, total=1100):
         if step < warmup:
             return step / warmup
         progress = min((step - warmup) / (total - warmup), 1.0)
