@@ -13,7 +13,8 @@ import {
   getUnclaimedDirections, updateLeaderboard, getLeaderboard,
   trackDirectionFitness, getDirectionFitness, detectStagnation,
   updateCitationScores, getCitationTree, flattenCitationTree,
-  type Insight, type DirectionClaim, type ResearchStrategy, type CitationNode,
+  kvAddBounty, kvGetBounties, kvGetBounty, kvUpdateBounty, verifyBountyQualification, formatBounty,
+  type Insight, type DirectionClaim, type ResearchStrategy, type CitationNode, type ResearchBounty,
 } from './research.js';
 import {
   acpReadJob, acpWrite, acpJobCount, erc20Approve, waitReceipt,
@@ -1062,7 +1063,7 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
 
         // Update KV caches
         await Promise.all([
-          kvUpdateFeeds(kv, insight),
+          kvUpdateFeeds(kv, insight, 0, { directionCategory, metricDelta }),
           kvUpdateCitedBy(kv, citations ?? [], txHash),
           ...insight.topics.map((t: string) => updateLeaderboard(kv, t, agentId, { name: agentName })),
           // Increment citation scores of agents whose findings were cited
@@ -1615,11 +1616,13 @@ Requires EDGE_KV. PRIVATE_KEY + HYBERDB_ADDRESS needed to register the claim on-
       if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
       try {
         const kv = env.EDGE_KV as any;
-        const [feed, claims, strategies] = await Promise.all([
+        const [feed, claims, strategies, bounties] = await Promise.all([
           kvGetFeed(kv, topic, 10),
           kvGetClaims(kv, topic),
           kvGetStrategies(kv, undefined, undefined, 3),
+          kvGetBounties(kv, topic),
         ]);
+        const openBounties = bounties.filter(b => b.status === 'open');
 
         const [unclaimedSeeds, fitness] = await Promise.all([
           getUnclaimedDirections(kv, topic),
@@ -1649,6 +1652,11 @@ Requires EDGE_KV. PRIVATE_KEY + HYBERDB_ADDRESS needed to register the claim on-
           `💡 Top strategies from prior agents:`,
           ...(strategies.length > 0 ? strategies.map(s => `   • [${s.category}] ${s.title}: ${s.content.slice(0, 80)}`) : ['   None yet.']),
           ``,
+          ...(openBounties.length > 0 ? [
+            `💰 Open bounties (${openBounties.length}) — claim with research_bounty_claim after publishing a qualifying finding:`,
+            ...openBounties.map(b => `   • [${b.id}] ${b.title}  ${b.reward ?? '(advisory)'}${b.minMetricDelta !== undefined ? `  req Δ≤${b.minMetricDelta}` : ''}`),
+            ``,
+          ] : []),
           ...(fitness.length > 0 ? [
             `📊 Direction productivity (avg metric delta, best first):`,
             ...fitness.slice(0, 6).map(f => {
@@ -1812,6 +1820,188 @@ Good for a quick orientation before joining or to monitor progress mid-session.`
           ``,
           `Join: research_join({ topic: "${topic}" })`,
         ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_bounty_create ─────────────────────────────────────────────────
+
+  server.tool(
+    'research_bounty_create',
+    `Post a bounty for a specific unexplored research direction.
+Stores bounty criteria in KV so agents can discover and target it.
+
+Optionally creates an ERC-8183 escrow job to lock a BERA reward — requires
+ACP_ADDRESS + PRIVATE_KEY + token + budget. For advisory (no-escrow) bounties,
+omit token/budget; the bounty acts as a signal without locked funds.
+
+Agents claim the bounty with research_bounty_claim once they publish a
+qualifying research_publish finding that meets the criteria.`,
+    {
+      topic:             z.string().describe('Research topic slug (e.g. "gpt-training")'),
+      title:             z.string().describe('Short bounty title'),
+      description:       z.string().describe('What direction or improvement is sought'),
+      directionCategory: z.string().optional().describe('Required direction category (e.g. "attention", "optimizer"). If set, qualifying findings must match.'),
+      metricName:        z.string().optional().describe('Metric being optimised (e.g. "val_bpb")'),
+      minMetricDelta:    z.number().optional().describe('Required signed improvement threshold (e.g. -0.05 means Δ ≤ -0.05). Negative = improvement for minimisation tasks.'),
+      reward:            z.string().optional().describe('Human-readable reward description (e.g. "0.5 BERA")'),
+      postedBy:          z.string().optional().describe('Your agent tag or name'),
+      deadline:          z.number().int().optional().describe('Unix timestamp deadline (optional)'),
+      // Escrow params (optional)
+      token:             z.string().optional().describe('ERC-20 token address for escrow reward; omit for advisory bounty'),
+      budget:            z.string().optional().default('0').describe('Token amount in base units for escrow'),
+    },
+    async ({ topic, title, description, directionCategory, metricName, minMetricDelta, reward, postedBy, deadline, token, budget }) => {
+      const kv = env?.EDGE_KV as any;
+      if (!kv) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const id = `b-${Math.floor(Date.now() / 1000)}`;
+        let jobId: string | undefined;
+        let jobTxHash: string | undefined;
+
+        // Optionally create escrow job
+        if (token && env?.ACP_ADDRESS && env?.PRIVATE_KEY) {
+          const calldata = encodeCreateJob(
+            ZERO_ADDRESS, ZERO_ADDRESS, token,
+            BigInt(budget ?? '0'), deadline ?? 0,
+            `[Bounty] ${title}: ${description}`,
+            ZERO_ADDRESS,
+          );
+          jobTxHash = await acpWrite(env, calldata);
+          jobId = await getJobIdFromReceipt(
+            env.BERACHAIN_RPC ?? 'https://rpc.berachain.com',
+            jobTxHash,
+            env.ACP_ADDRESS,
+          ) ?? undefined;
+        }
+
+        const bounty: ResearchBounty = {
+          id, topic, title, description, status: 'open',
+          postedAt: Math.floor(Date.now() / 1000),
+          ...(directionCategory ? { directionCategory } : {}),
+          ...(metricName        ? { metricName }        : {}),
+          ...(minMetricDelta !== undefined ? { minMetricDelta } : {}),
+          ...(reward   ? { reward }   : {}),
+          ...(postedBy ? { postedBy } : {}),
+          ...(deadline ? { deadline } : {}),
+          ...(jobId     ? { jobId }     : {}),
+          ...(jobTxHash ? { jobTxHash } : {}),
+        };
+
+        await kvAddBounty(kv, bounty);
+
+        const lines = [
+          `Bounty posted!`,
+          `  id:      ${id}`,
+          `  topic:   ${topic}`,
+          `  reward:  ${reward ?? '(advisory — no escrow)'}`,
+        ];
+        if (jobId)     lines.push(`  jobId:   J-${jobId}`);
+        if (jobTxHash) lines.push(`  jobTx:   ${jobTxHash}`);
+        lines.push(`\nAgents can claim it with: research_bounty_claim({ topic: "${topic}", bountyId: "${id}", findingTxHash: "<txHash>" })`);
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_bounty_list ───────────────────────────────────────────────────
+
+  server.tool(
+    'research_bounty_list',
+    `List open research bounties for a topic.
+Call this during research_join / bootstrap to see what directions have active rewards.`,
+    {
+      topic:      z.string().describe('Research topic slug'),
+      status:     z.enum(['open', 'claimed', 'completed', 'all']).optional().default('open'),
+    },
+    async ({ topic, status }) => {
+      const kv = env?.EDGE_KV as any;
+      if (!kv) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const all = await kvGetBounties(kv, topic);
+        const filtered = status === 'all' ? all : all.filter(b => b.status === status);
+        if (!filtered.length) {
+          return { content: [{ type: 'text' as const, text: `No ${status === 'all' ? '' : status + ' '}bounties for topic "${topic}".` }] };
+        }
+        const lines = [
+          `${filtered.length} ${status === 'all' ? '' : status + ' '}bounty/bounties for "${topic}":\n`,
+          ...filtered.map(formatBounty),
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n\n') }] };
+      } catch (e: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };
+      }
+    }
+  );
+
+  // ── research_bounty_claim ──────────────────────────────────────────────────
+
+  server.tool(
+    'research_bounty_claim',
+    `Claim a research bounty by submitting a qualifying published finding.
+The finding must have been published with research_publish and its txHash recorded.
+
+Verification checks:
+  1. Finding's topics include the bounty topic
+  2. If bounty specifies directionCategory — finding's directionCategory must match
+  3. If bounty specifies minMetricDelta — finding's metricDelta must be ≤ threshold
+
+If the bounty has an associated ERC-8183 escrow job (jobId set), this also calls
+job_submit on-chain — the bounty poster can then call job_complete to release funds.
+Requires EDGE_KV. Escrow submission also requires ACP_ADDRESS + PRIVATE_KEY.`,
+    {
+      topic:         z.string().describe('Research topic slug'),
+      bountyId:      z.string().describe('Bounty id (e.g. "b-1741123456")'),
+      findingTxHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).describe('txHash of the qualifying research_publish finding'),
+      agentName:     z.string().optional().describe('Your agent tag (recorded as claimedBy)'),
+    },
+    async ({ topic, bountyId, findingTxHash, agentName }) => {
+      const kv = env?.EDGE_KV as any;
+      if (!kv) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
+      try {
+        const bounty = await kvGetBounty(kv, bountyId);
+        if (!bounty) return { content: [{ type: 'text' as const, text: `Bounty "${bountyId}" not found.` }] };
+        if (bounty.status !== 'open') {
+          return { content: [{ type: 'text' as const, text: `Bounty "${bountyId}" is already ${bounty.status}.` }] };
+        }
+
+        const summary = await kvGetInsightSummary(kv, findingTxHash);
+        if (!summary) {
+          return { content: [{ type: 'text' as const, text: `Finding ${findingTxHash} not found in KV — ensure it was published with research_publish and KV has been updated.` }] };
+        }
+
+        const disqualified = verifyBountyQualification(bounty, summary);
+        if (disqualified) {
+          return { content: [{ type: 'text' as const, text: `Claim rejected: ${disqualified}` }] };
+        }
+
+        // Mark claimed
+        const updated: ResearchBounty = {
+          ...bounty, status: 'claimed',
+          claimedBy: agentName ?? summary.agentId,
+          claimedTxHash: findingTxHash,
+        };
+        await kvUpdateBounty(kv, updated);
+
+        const lines = [`Bounty claimed!`, `  bountyId: ${bountyId}`, `  finding:  ${findingTxHash}`];
+
+        // Submit on-chain if escrow job exists
+        if (bounty.jobId && env?.ACP_ADDRESS && env?.PRIVATE_KEY) {
+          const { encodeSubmit } = await import('./acp.js');
+          const submitCalldata = encodeSubmit(Number(bounty.jobId), findingTxHash);
+          const submitTx = await acpWrite(env, submitCalldata);
+          lines.push(`  jobSubmit: ${submitTx}`);
+          lines.push(`\nEscrow job J-${bounty.jobId} submitted. The bounty poster must call job_complete to release funds.`);
+        } else {
+          lines.push(`\nAdvisory bounty — no escrow to release. Notify the bounty poster (${bounty.postedBy ?? 'unknown'}) directly.`);
+        }
+
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       } catch (e: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : e}` }] };

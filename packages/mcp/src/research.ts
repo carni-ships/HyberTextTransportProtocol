@@ -44,14 +44,16 @@ export interface Insight {
 
 /** Compact summary stored in KV — no full content. */
 export interface InsightSummary {
-  txHash:       string;
-  agentId:      string;
-  title:        string;
-  summary:      string;   // first 300 chars
-  topics:       string[];
-  citations:    string[];
-  citedByCount: number;
-  publishedAt:  number;
+  txHash:             string;
+  agentId:            string;
+  title:              string;
+  summary:            string;   // first 300 chars
+  topics:             string[];
+  citations:          string[];
+  citedByCount:       number;
+  publishedAt:        number;
+  directionCategory?: string;   // e.g. "optimizer", "lr-schedule"
+  metricDelta?:       number;   // signed improvement magnitude
 }
 
 export interface DirectionClaim {
@@ -162,7 +164,12 @@ async function rpcPost(rpcUrl: string, method: string, params: unknown[]): Promi
 const FEED_MAX = 50;
 
 /** Prepend a new InsightSummary to each topic's feed in KV. */
-export async function kvUpdateFeeds(kv: any, insight: Insight, citedByCount = 0): Promise<void> {
+export async function kvUpdateFeeds(
+  kv: any,
+  insight: Insight,
+  citedByCount = 0,
+  opts?: { directionCategory?: string; metricDelta?: number },
+): Promise<void> {
   const summary: InsightSummary = {
     txHash:       insight.txHash,
     agentId:      insight.agentId,
@@ -172,6 +179,8 @@ export async function kvUpdateFeeds(kv: any, insight: Insight, citedByCount = 0)
     citations:    insight.citations,
     citedByCount,
     publishedAt:  insight.publishedAt,
+    ...(opts?.directionCategory !== undefined ? { directionCategory: opts.directionCategory } : {}),
+    ...(opts?.metricDelta       !== undefined ? { metricDelta:       opts.metricDelta       } : {}),
   };
 
   // Per-topic feeds
@@ -558,4 +567,96 @@ export function formatClaim(c: DirectionClaim): string {
   const remaining = Math.max(0, c.expiresAt - Math.floor(Date.now() / 1000));
   const hm = `${Math.floor(remaining / 3600)}h${Math.floor((remaining % 3600) / 60)}m`;
   return `  ${c.agentId}  confidence: ${(c.intentConfidence * 100).toFixed(0)}%  expires in: ${hm}\n  "${c.description}"`;
+}
+
+// ─── Research bounties ────────────────────────────────────────────────────────
+
+export interface ResearchBounty {
+  id:                string;   // nanoid-style, e.g. "b-1741123456"
+  jobId?:            string;   // ERC-8183 job ID if escrow was created
+  jobTxHash?:        string;   // on-chain job creation tx
+  topic:             string;   // research topic slug
+  title:             string;
+  description:       string;   // what direction / improvement is sought
+  directionCategory?: string;  // e.g. "optimizer", "attention"
+  metricName?:       string;   // e.g. "val_bpb"
+  minMetricDelta?:   number;   // required signed improvement, e.g. -0.05
+  reward?:           string;   // human-readable, e.g. "0.5 BERA"
+  postedBy?:         string;   // agentName or wallet
+  status:            'open' | 'claimed' | 'completed';
+  claimedBy?:        string;   // agentName that claimed it
+  claimedTxHash?:    string;   // qualifying research_publish txHash
+  postedAt:          number;
+  deadline?:         number;   // unix timestamp, optional
+}
+
+const KV_BOUNTY_FEED  = (topic: string) => `research:bounty:feed:${topic.toLowerCase()}`;
+const KV_BOUNTY_BY_ID = (id: string)    => `research:bounty:id:${id}`;
+
+export async function kvAddBounty(kv: any, bounty: ResearchBounty): Promise<void> {
+  const feed: ResearchBounty[] = await kv.get(KV_BOUNTY_FEED(bounty.topic), { type: 'json' }) ?? [];
+  feed.unshift(bounty);
+  if (feed.length > 100) feed.length = 100;
+  await Promise.all([
+    kv.put(KV_BOUNTY_FEED(bounty.topic), JSON.stringify(feed)),
+    kv.put(KV_BOUNTY_BY_ID(bounty.id),   JSON.stringify(bounty)),
+  ]);
+}
+
+export async function kvGetBounties(kv: any, topic: string): Promise<ResearchBounty[]> {
+  return await kv.get(KV_BOUNTY_FEED(topic), { type: 'json' }) ?? [];
+}
+
+export async function kvGetBounty(kv: any, id: string): Promise<ResearchBounty | null> {
+  return await kv.get(KV_BOUNTY_BY_ID(id), { type: 'json' });
+}
+
+export async function kvUpdateBounty(kv: any, bounty: ResearchBounty): Promise<void> {
+  // patch the feed entry in-place
+  const feed: ResearchBounty[] = await kv.get(KV_BOUNTY_FEED(bounty.topic), { type: 'json' }) ?? [];
+  const idx = feed.findIndex(b => b.id === bounty.id);
+  if (idx >= 0) feed[idx] = bounty;
+  await Promise.all([
+    kv.put(KV_BOUNTY_FEED(bounty.topic), JSON.stringify(feed)),
+    kv.put(KV_BOUNTY_BY_ID(bounty.id),   JSON.stringify(bounty)),
+  ]);
+}
+
+/** Check whether a published finding qualifies for a bounty.
+ *  Returns null if OK, or a reason string if disqualified. */
+export function verifyBountyQualification(
+  bounty: ResearchBounty,
+  summary: InsightSummary,
+): string | null {
+  if (!summary.topics.map(t => t.toLowerCase()).includes(bounty.topic.toLowerCase())) {
+    return `Finding topic (${summary.topics.join(', ')}) does not match bounty topic "${bounty.topic}"`;
+  }
+  if (bounty.directionCategory && summary.directionCategory) {
+    if (summary.directionCategory.toLowerCase() !== bounty.directionCategory.toLowerCase()) {
+      return `Finding directionCategory "${summary.directionCategory}" does not match bounty requirement "${bounty.directionCategory}"`;
+    }
+  }
+  if (bounty.minMetricDelta !== undefined && summary.metricDelta !== undefined) {
+    // For minimization tasks minMetricDelta is negative; improvement means delta ≤ threshold
+    if (summary.metricDelta > bounty.minMetricDelta) {
+      return `Finding metricDelta ${summary.metricDelta} does not meet required threshold ${bounty.minMetricDelta}`;
+    }
+  }
+  return null;
+}
+
+export function formatBounty(b: ResearchBounty): string {
+  const lines = [
+    `[${b.id}] ${b.title}  — ${b.status.toUpperCase()}`,
+    `  topic:    ${b.topic}${b.directionCategory ? ` / ${b.directionCategory}` : ''}`,
+    `  reward:   ${b.reward ?? '(no escrow)'}`,
+  ];
+  if (b.metricName && b.minMetricDelta !== undefined)
+    lines.push(`  requires: ${b.metricName} Δ ≤ ${b.minMetricDelta}`);
+  if (b.deadline) lines.push(`  deadline: ${new Date(b.deadline * 1000).toISOString()}`);
+  lines.push(`  ${b.description}`);
+  if (b.status !== 'open') {
+    lines.push(`  claimed by: ${b.claimedBy ?? 'unknown'}  →  ${b.claimedTxHash ?? ''}`);
+  }
+  return lines.join('\n');
 }
