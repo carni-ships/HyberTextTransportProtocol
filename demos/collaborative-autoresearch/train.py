@@ -106,7 +106,7 @@ class GPT(nn.Module):
             if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name):
                 nn.init.normal_(p, mean=0.0, std=0.20)  # sweet spot confirmed
             elif 'proj' in name or 'down' in name:
-                nn.init.normal_(p, mean=0.0, std=0.07)  # exp: 0.07 (between 0.05=best and 0.10=worse)
+                nn.init.normal_(p, mean=0.0, std=0.08)  # exp: 0.08 (above 0.07; scanning)
 
     def forward(self, idx):
         B, T = idx.size()
