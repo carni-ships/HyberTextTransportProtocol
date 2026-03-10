@@ -160,6 +160,9 @@ def train():
 
     # Model + optimizer
     model = GPT(config).to(device)
+    # torch.compile with aot_eager: ~11% faster on MPS (compile overhead absorbed by train_start delay)
+    if device == "mps":
+        model = torch.compile(model, backend="aot_eager")
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
