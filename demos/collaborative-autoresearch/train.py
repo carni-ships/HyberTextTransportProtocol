@@ -110,7 +110,9 @@ class GPT(nn.Module):
     def forward(self, idx):
         B, T = idx.size()
         pos  = torch.arange(T, device=idx.device).unsqueeze(0)
-        x    = self.transformer['wte'](idx) + self.transformer['wpe'](pos)
+        # Scale (wte+wpe) by sqrt(n_embd) per 0x3ad40814: keeps residual stream magnitude consistent
+        scale = self.config.n_embd ** 0.5
+        x    = (self.transformer['wte'](idx) + self.transformer['wpe'](pos)) * scale
         x    = self.transformer['drop'](x)
         for block in self.transformer['h']:
             x = block(x)
@@ -146,8 +148,8 @@ def train():
         weight_decay=0.2,
     )
 
-    # Cosine LR schedule — MPS actual steps ~1100-1400; try total=1100 to avoid flat tail
-    def get_lr(step, warmup=50, total=1100):
+    # Cosine LR schedule — calibrated to actual steps at batch=64/seq=64 (~1400 steps)
+    def get_lr(step, warmup=50, total=1400):
         if step < warmup:
             return step / warmup
         progress = min((step - warmup) / (total - warmup), 1.0)
