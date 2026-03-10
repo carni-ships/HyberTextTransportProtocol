@@ -103,3 +103,4 @@ c3af8d3	2.294	5.5	discard	beta2=0.97 + pre-built loader: mean 2.294 (8 runs) —
 5bf9290	2.279	5.5	note	on-device pre-loaded tensors: mean 2.279 (16 runs, throttled) — inconclusive vs 2.263 baseline (also throttled)
 92086bc	2.292	5.5	discard	grad_clip=0.5: mean 2.292 (8 runs) — 1.0 stays best
 cd1aec2	2.297	5.5	discard	learned wpe_scale: mean 2.297 (8 runs) — fixed scale=1.0 stays best
+b0dea93	2.305	5.5	discard	torch.compile(aot_eager): mean 2.305 (16 runs) — overhead hurts; no speedup vs eager on MPS
