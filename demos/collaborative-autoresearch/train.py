@@ -151,7 +151,7 @@ def train():
         if step < warmup:
             return step / warmup
         progress = min((step - warmup) / (total - warmup), 1.0)
-        return max(0.5 * (1 + math.cos(math.pi * progress)), 0.1)
+        return max(0.5 * (1 + math.cos(math.pi * progress)), 0.0)
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, get_lr)
 
