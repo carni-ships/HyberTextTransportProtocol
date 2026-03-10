@@ -38,3 +38,7 @@ e723275	2.900	5.6	discard	parallel attn+mlp (PaLM): mean 2.900 — catastrophic 
 bdbdebf	2.337	5.5	discard	batch=128+time-based cosine: mean 2.337 throttled (worse than step-based 2.297 unthrottled)
 8c18f39	2.366	5.6	discard	time-based cosine+batch=64: mean 2.366 throttled
 6016870	2.244	5.5	keep	batch=128+lr=2e-2+time-based cosine: mean 2.303 over 16 runs throttled — robust!
+993d958	2.325	5.5	discard	lr=2.5e-2 batch=128: mean 2.325 — 2e-2 better
+097c19d	2.322	5.5	discard	lr=1.75e-2 batch=128: mean 2.322 — 2e-2 still best
+a0e0100	2.317	5.5	discard	betas=(0.9,0.95)+batch=128+lr=2e-2: mean 2.317 — 0.85 better
+7ea575d	2.255	5.5	keep	betas=(0.80,0.95)+batch=128+lr=2e-2+time-cosine: mean 2.289 16-runs — NEW BEST
