@@ -310,6 +310,86 @@ export async function getUnclaimedDirections(
   return pool.filter(d => !taken.has(d));
 }
 
+// ─── Direction fitness tracking ───────────────────────────────────────────────
+
+export interface DirectionFitness {
+  category:    string;
+  attempts:    number;
+  totalDelta:  number;   // sum of val_bpb deltas (negative = improvement for min tasks)
+  bestDelta:   number;   // best single-run delta
+  lastUpdated: number;   // unix timestamp
+}
+
+const KV_FITNESS_INDEX  = (topic: string) => `research:fitness:${topic.toLowerCase()}:__index__`;
+const KV_FITNESS_ENTRY  = (topic: string, cat: string) => `research:fitness:${topic.toLowerCase()}:${cat.toLowerCase().replace(/\s+/g, '-')}`;
+
+/** Record a val_bpb delta for a direction category after a successful publish. */
+export async function trackDirectionFitness(
+  kv: any,
+  topic: string,
+  category: string,
+  delta: number,           // negative means improvement (lower bpb is better)
+): Promise<void> {
+  if (!kv || !category) return;
+  const key  = KV_FITNESS_ENTRY(topic, category);
+  const prev = await kv.get(key);
+  const rec: DirectionFitness = prev ? JSON.parse(prev) : {
+    category, attempts: 0, totalDelta: 0, bestDelta: 0, lastUpdated: 0,
+  };
+  rec.attempts   += 1;
+  rec.totalDelta += delta;
+  rec.bestDelta   = rec.attempts === 1 ? delta : Math.min(rec.bestDelta, delta);
+  rec.lastUpdated = Math.floor(Date.now() / 1000);
+  await kv.put(key, JSON.stringify(rec), { expirationTtl: 86400 * 30 });
+
+  // Maintain index of known categories
+  const idxKey = KV_FITNESS_INDEX(topic);
+  const idxRaw = await kv.get(idxKey);
+  const idx: string[] = idxRaw ? JSON.parse(idxRaw) : [];
+  if (!idx.includes(category)) {
+    idx.push(category);
+    await kv.put(idxKey, JSON.stringify(idx), { expirationTtl: 86400 * 30 });
+  }
+}
+
+/** Return all direction fitness records for a topic, sorted by avg delta (best first). */
+export async function getDirectionFitness(
+  kv: any,
+  topic: string,
+): Promise<DirectionFitness[]> {
+  if (!kv) return [];
+  const idxRaw = await kv.get(KV_FITNESS_INDEX(topic));
+  if (!idxRaw) return [];
+  const categories: string[] = JSON.parse(idxRaw);
+  const records = await Promise.all(
+    categories.map(async cat => {
+      const raw = await kv.get(KV_FITNESS_ENTRY(topic, cat));
+      return raw ? (JSON.parse(raw) as DirectionFitness) : null;
+    })
+  );
+  return (records.filter(Boolean) as DirectionFitness[])
+    .sort((a, b) => (a.totalDelta / a.attempts) - (b.totalDelta / b.attempts)); // best (most negative avg) first
+}
+
+/** Detect swarm stagnation: returns true if no improvement > threshold in recent N findings. */
+export function detectStagnation(
+  feed: InsightSummary[],
+  opts: { windowSize?: number; threshold?: number } = {},
+): boolean {
+  const { windowSize = 6, threshold = 0.01 } = opts;
+  const recent = feed.slice(0, windowSize);
+  if (recent.length < 3) return false;
+  const deltas = recent.flatMap(f => {
+    const m = f.summary.match(/(?:delta|improvement|improvement of)[:\s]+([−\-]?\d+\.\d+)/i)
+           || f.summary.match(/([−\-]\d+\.\d+)\s*bpb/i);
+    if (!m) return [];
+    const v = parseFloat(m[1].replace('−', '-'));
+    return isFinite(v) ? [Math.abs(v)] : [];
+  });
+  if (deltas.length < 2) return false;
+  return Math.max(...deltas) < threshold;
+}
+
 // ─── Leaderboard ──────────────────────────────────────────────────────────────
 
 export const KV_LEADERBOARD = (topic: string) => `research:leaderboard:${topic.toLowerCase()}`;

@@ -11,6 +11,7 @@ import {
   kvAddClaim, kvGetClaims, kvAddStrategy, kvGetStrategies,
   formatInsightSummary, formatStrategy, formatClaim,
   getUnclaimedDirections, updateLeaderboard, getLeaderboard,
+  trackDirectionFitness, getDirectionFitness, detectStagnation,
   type Insight, type DirectionClaim, type ResearchStrategy,
 } from './research.js';
 import {
@@ -1017,8 +1018,10 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
       supersedesInsight:  z.string().optional().describe('txHash of prior Insight this supersedes'),
       acpJobId:           z.string().optional().describe('ERC-8183 job ID that produced this'),
       taskboardRef:       z.object({ workspace: z.string(), taskId: z.string() }).optional(),
+      directionCategory:  z.string().optional().describe('Short category label for this direction (e.g. "optimizer", "architecture", "lr-schedule"). Used to rank directions by productivity for future agents.'),
+      metricDelta:        z.number().optional().describe('Change in the optimisation metric (negative = improvement for minimisation tasks). Used to score direction productivity.'),
     },
-    async ({ title, summary, topics, citations, artifactTxHash, confidence, supersedesInsight, acpJobId, taskboardRef }) => {
+    async ({ title, summary, topics, citations, artifactTxHash, confidence, supersedesInsight, acpJobId, taskboardRef, directionCategory, metricDelta }) => {
       if (!env?.PRIVATE_KEY)     return { content: [{ type: 'text' as const, text: 'PRIVATE_KEY not configured.' }] };
       if (!env?.HYBERDB_ADDRESS) return { content: [{ type: 'text' as const, text: 'HYBERDB_ADDRESS not configured.' }] };
       if (!env?.EDGE_KV)         return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
@@ -1060,6 +1063,10 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
           kvUpdateFeeds(kv, insight),
           kvUpdateCitedBy(kv, citations ?? [], txHash),
           ...insight.topics.map((t: string) => updateLeaderboard(kv, t, agentId)),
+          // Track direction fitness for bandit-style direction scoring
+          ...(directionCategory != null && metricDelta != null
+            ? insight.topics.map((t: string) => trackDirectionFitness(kv, t, directionCategory, metricDelta))
+            : []),
         ]);
 
         const gatewayUrl = `${gatewayOrigin(env)}/${txHash}/`;
@@ -1572,7 +1579,10 @@ Requires EDGE_KV. PRIVATE_KEY + HYBERDB_ADDRESS needed to register the claim on-
           kvGetStrategies(kv, undefined, undefined, 3),
         ]);
 
-        const unclaimedSeeds = await getUnclaimedDirections(kv, topic);
+        const [unclaimedSeeds, fitness] = await Promise.all([
+          getUnclaimedDirections(kv, topic),
+          getDirectionFitness(kv, topic),
+        ]);
 
         const bestBpb = feed.length > 0
           ? feed.map(f => {
@@ -1597,6 +1607,21 @@ Requires EDGE_KV. PRIVATE_KEY + HYBERDB_ADDRESS needed to register the claim on-
           `💡 Top strategies from prior agents:`,
           ...(strategies.length > 0 ? strategies.map(s => `   • [${s.category}] ${s.title}: ${s.content.slice(0, 80)}`) : ['   None yet.']),
           ``,
+          ...(fitness.length > 0 ? [
+            `📊 Direction productivity (avg metric delta, best first):`,
+            ...fitness.slice(0, 6).map(f => {
+              const avg = (f.totalDelta / f.attempts).toFixed(3);
+              const sign = f.totalDelta < 0 ? '' : '+';
+              return `   • ${f.category.padEnd(22)} avg ${sign}${avg}  (${f.attempts} attempt${f.attempts !== 1 ? 's' : ''}, best ${f.bestDelta > 0 ? '+' : ''}${f.bestDelta.toFixed(3)})`;
+            }),
+            ``,
+          ] : []),
+          ...(detectStagnation(feed) ? [
+            `⚠️  STAGNATION DETECTED: no meaningful improvement in recent findings.`,
+            `   Consider a synthesis run combining the best known variables,`,
+            `   or explore a direction in a low-productivity category above.`,
+            ``,
+          ] : []),
           `🧭 Unclaimed seed directions (starting points — not exhaustive):`,
           ...(unclaimedSeeds.length > 0
             ? unclaimedSeeds.slice(0, 8).map(d => `   • ${d}`)
@@ -1686,10 +1711,11 @@ Good for a quick orientation before joining or to monitor progress mid-session.`
       if (!env?.EDGE_KV) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
       try {
         const kv = env.EDGE_KV as any;
-        const [feed, claims, board] = await Promise.all([
+        const [feed, claims, board, fitness] = await Promise.all([
           kvGetFeed(kv, topic, 20),
           kvGetClaims(kv, topic),
           getLeaderboard(kv, topic, 5),
+          getDirectionFitness(kv, topic),
         ]);
 
         const bpbValues = feed
@@ -1719,6 +1745,20 @@ Good for a quick orientation before joining or to monitor progress mid-session.`
             ? board.map((e, i) => `   ${i + 1}. ${e.agentId.slice(0, 10)}...  ${e.count} findings`)
             : ['   None yet.']),
           ``,
+          ...(fitness.length > 0 ? [
+            `📊 Direction productivity (avg metric delta):`,
+            ...fitness.slice(0, 8).map(f => {
+              const avg = (f.totalDelta / f.attempts).toFixed(3);
+              const sign = f.totalDelta < 0 ? '' : '+';
+              return `   ${sign}${avg.padStart(7)}  ${f.category}  (${f.attempts}×, best ${f.bestDelta > 0 ? '+' : ''}${f.bestDelta.toFixed(3)})`;
+            }),
+            ``,
+          ] : []),
+          ...(detectStagnation(feed) ? [
+            `⚠️  Swarm stagnation detected — no meaningful improvement in recent findings.`,
+            `   High-impact next move: synthesis run combining top known-good variables.`,
+            ``,
+          ] : []),
           `📰 Recent findings:`,
           ...feed.slice(0, 5).map(f => {
             const ago = Math.floor((Date.now() / 1000 - f.publishedAt) / 60);
