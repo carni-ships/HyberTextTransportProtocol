@@ -28,7 +28,7 @@ class GPTConfig:
     sequence_len: int = 64        # confirmed best: seq=64
     n_layer:      int = 1
     n_head:       int = 4
-    n_embd:       int = 144  # exp: re-test with pre-built loader (more steps)
+    n_embd:       int = 128
     dropout:      float = 0.0
 
 # ─── Model ────────────────────────────────────────────────────────────────────
