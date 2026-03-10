@@ -104,7 +104,7 @@ class GPT(nn.Module):
     def _init_weights(self):
         for name, p in self.named_parameters():
             if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name):
-                nn.init.normal_(p, mean=0.0, std=0.20)  # sweet spot confirmed
+                nn.init.normal_(p, mean=0.0, std=0.18)  # exp: 0.18 with proj=0.09 (ratio 2x)
             elif 'proj' in name or 'down' in name:
                 nn.init.normal_(p, mean=0.0, std=0.09)  # sweet spot: 0.09 beats 0.05 baseline by +0.030 (2.274 vs 2.304)
 
