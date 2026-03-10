@@ -92,6 +92,7 @@ class GPT(nn.Module):
             'wpe': nn.Embedding(config.sequence_len, config.n_embd),
             'drop': nn.Dropout(config.dropout),
             'h': nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            'ln_f': nn.LayerNorm(config.n_embd),  # exp: final output norm only
         })
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # Weight tying
@@ -114,6 +115,7 @@ class GPT(nn.Module):
         x    = self.transformer['drop'](x)
         for block in self.transformer['h']:
             x = block(x)
+        x = self.transformer['ln_f'](x)  # final output norm
         return self.lm_head(x)
 
     def num_params(self) -> int:
