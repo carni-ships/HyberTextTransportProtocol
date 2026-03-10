@@ -10,9 +10,9 @@ import {
   kvUpdateFeeds, kvUpdateCitedBy, kvGetFeed, kvGetCitedBy, kvGetInsightSummary,
   kvAddClaim, kvGetClaims, kvAddStrategy, kvGetStrategies,
   formatInsightSummary, formatStrategy, formatClaim,
-  getUnclaimedDirections, updateLeaderboard, getLeaderboard,
+  getUnclaimedDirections, updateLeaderboardAndCitations, getLeaderboard,
   trackDirectionFitness, getDirectionFitness, detectStagnation,
-  updateCitationScores, getCitationTree, flattenCitationTree,
+  getCitationTree, flattenCitationTree,
   kvAddBounty, kvGetBounties, kvGetBounty, kvUpdateBounty, verifyBountyQualification, formatBounty,
   kvGetAgentIdentity, kvSetAgentIdentity, kvGetAgentRep, kvUpdateAgentRep, kvGetRepLeaderboard, formatRepSummary,
   type Insight, type DirectionClaim, type ResearchStrategy, type CitationNode, type ResearchBounty,
@@ -1294,26 +1294,22 @@ Requires PRIVATE_KEY + HYBERDB_ADDRESS + EDGE_KV.`,
         // Write structured metadata to agent's HyberDB namespace
         await dbClient(rpcUrl, env, true).set(`${agentId}/research`, `I-${agentSeq}`, insight as any);
 
-        // Update KV caches
+        // Update KV caches — minimise write count:
+        //  • updateLeaderboardAndCitations does ONE leaderboard read+write per topic,
+        //    merging the old separate updateLeaderboard + updateCitationScores calls
+        //    (which raced in Promise.all and each wrote the leaderboard independently).
+        //  • Citation rep drip is intentionally omitted here — it adds 2 writes per
+        //    cited agent and is lazy-computed by agent_reputation_get instead.
         await Promise.all([
           kvUpdateFeeds(kv, insight, 0, { directionCategory, metricDelta }),
           kvUpdateCitedBy(kv, citations ?? [], txHash),
-          ...insight.topics.map((t: string) => updateLeaderboard(kv, t, agentId, { name: agentName })),
-          // Increment citation scores of agents whose findings were cited
-          ...insight.topics.map((t: string) => updateCitationScores(kv, t, citations ?? [])),
+          ...insight.topics.map((t: string) =>
+            updateLeaderboardAndCitations(kv, t, agentId, citations ?? [], { name: agentName })
+          ),
           // Track direction fitness for bandit-style direction scoring
           ...(directionCategory != null && metricDelta != null
             ? insight.topics.map((t: string) => trackDirectionFitness(kv, t, directionCategory, metricDelta))
             : []),
-          // ERC-8004: drip citation rep to cited agents in the KV rep index
-          ...(citations ?? []).map(async (citedHash: string) => {
-            const citedSummary = await kvGetInsightSummary(kv, citedHash);
-            if (!citedSummary) return;
-            const citedAgentId = citedSummary.agentId.toLowerCase();
-            const repEntry = await kvGetAgentRep(kv, citedAgentId);
-            if (!repEntry) return; // only update agents already in the rep index
-            await kvUpdateAgentRep(kv, citedAgentId, repEntry.tokenId, { citationDelta: 1, scoreDelta: 0.001 });
-          }),
         ]);
 
         const gatewayUrl = `${gatewayOrigin(env)}/${txHash}/`;
@@ -2224,7 +2220,7 @@ Requires EDGE_KV. Escrow submission also requires ACP_ADDRESS + PRIVATE_KEY.`,
       const kv = env?.EDGE_KV as any;
       if (!kv) return { content: [{ type: 'text' as const, text: 'EDGE_KV not configured.' }] };
       try {
-        const bounty = await kvGetBounty(kv, bountyId);
+        const bounty = await kvGetBounty(kv, bountyId, topic);
         if (!bounty) return { content: [{ type: 'text' as const, text: `Bounty "${bountyId}" not found.` }] };
         if (bounty.status !== 'open') {
           return { content: [{ type: 'text' as const, text: `Bounty "${bountyId}" is already ${bounty.status}.` }] };

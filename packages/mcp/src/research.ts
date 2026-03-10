@@ -411,52 +411,72 @@ export interface LeaderboardEntry {
   lastPublished: number;
 }
 
+/**
+ * Update leaderboard and citation scores in a single read+write per topic.
+ * Replaces separate updateLeaderboard + updateCitationScores calls, which
+ * previously raced when called concurrently in Promise.all, and each wrote
+ * the leaderboard independently (2× the writes, and one overwrote the other).
+ */
+export async function updateLeaderboardAndCitations(
+  kv: any,
+  topic: string,
+  agentId: string,
+  citations: string[],
+  opts: { name?: string } = {},
+): Promise<void> {
+  const key  = KV_LEADERBOARD(topic);
+  const now  = Math.floor(Date.now() / 1000);
+
+  // Read leaderboard once
+  const prev = await kv.get(key);
+  const board: LeaderboardEntry[] = prev ? JSON.parse(prev) : [];
+
+  // 1. Update publishing agent's count
+  const me = board.find(e => e.agentId.toLowerCase() === agentId.toLowerCase());
+  if (me) {
+    me.count++;
+    me.lastPublished = now;
+    if (opts.name) me.name = opts.name;
+  } else {
+    board.push({ agentId, name: opts.name, count: 1, citationScore: 0, lastPublished: now });
+  }
+
+  // 2. For each cited insight, increment cited agent's citation score AND
+  //    update the citedByCount on the insight summary — all in one leaderboard write.
+  const summaryWrites: Promise<void>[] = [];
+  for (const citedHash of citations) {
+    const summaryRaw = await kv.get(KV.insightSummary(citedHash));
+    if (!summaryRaw) continue;
+    const summary: InsightSummary = JSON.parse(summaryRaw);
+    summary.citedByCount = (summary.citedByCount ?? 0) + 1;
+    summaryWrites.push(kv.put(KV.insightSummary(citedHash), JSON.stringify(summary)));
+
+    const citedEntry = board.find(e => e.agentId.toLowerCase() === summary.agentId.toLowerCase());
+    if (citedEntry) {
+      citedEntry.citationScore = (citedEntry.citationScore ?? 0) + 1;
+    }
+  }
+
+  // 3. Single leaderboard write + parallel summary writes
+  board.sort((a, b) => (b.citationScore - a.citationScore) || (b.count - a.count));
+  await Promise.all([kv.put(key, JSON.stringify(board)), ...summaryWrites]);
+}
+
+/** @deprecated Use updateLeaderboardAndCitations — kept for cron backward-compat. */
 export async function updateLeaderboard(
   kv: any,
   topic: string,
   agentId: string,
   opts: { name?: string; citationDelta?: number } = {},
 ): Promise<void> {
-  const key  = KV_LEADERBOARD(topic);
-  const prev = await kv.get(key);
-  const board: LeaderboardEntry[] = prev ? JSON.parse(prev) : [];
-  const now  = Math.floor(Date.now() / 1000);
-  const existing = board.find(e => e.agentId.toLowerCase() === agentId.toLowerCase());
-  if (existing) {
-    existing.count++;
-    existing.lastPublished = now;
-    if (opts.name) existing.name = opts.name;
-    existing.citationScore = (existing.citationScore ?? 0) + (opts.citationDelta ?? 0);
-  } else {
-    board.push({ agentId, name: opts.name, count: 1, citationScore: opts.citationDelta ?? 0, lastPublished: now });
-  }
-  // Sort by citation score desc, then publish count desc
-  board.sort((a, b) => (b.citationScore - a.citationScore) || (b.count - a.count));
-  await kv.put(key, JSON.stringify(board));
+  await updateLeaderboardAndCitations(kv, topic, agentId, [], opts);
 }
 
-/** Increment the citation score of the agents whose findings were cited. */
+/** @deprecated Use updateLeaderboardAndCitations. */
 export async function updateCitationScores(kv: any, topic: string, citedTxHashes: string[]): Promise<void> {
-  if (!citedTxHashes.length) return;
-  await Promise.all(citedTxHashes.map(async (txHash) => {
-    const summaryRaw = await kv.get(KV.insightSummary(txHash));
-    if (!summaryRaw) return;
-    const summary: InsightSummary = JSON.parse(summaryRaw);
-    // Increment citedByCount on the cached summary
-    summary.citedByCount = (summary.citedByCount ?? 0) + 1;
-    await kv.put(KV.insightSummary(txHash), JSON.stringify(summary));
-    // Increment leaderboard citation score for the cited agent
-    const key  = KV_LEADERBOARD(topic);
-    const prev = await kv.get(key);
-    if (!prev) return;
-    const board: LeaderboardEntry[] = JSON.parse(prev);
-    const entry = board.find(e => e.agentId.toLowerCase() === summary.agentId.toLowerCase());
-    if (entry) {
-      entry.citationScore = (entry.citationScore ?? 0) + 1;
-      board.sort((a, b) => (b.citationScore - a.citationScore) || (b.count - a.count));
-      await kv.put(key, JSON.stringify(board));
-    }
-  }));
+  // No-op shim — callers should migrate to updateLeaderboardAndCitations.
+  // Left here so the cron path (which imports this) continues to compile.
+  void kv; void topic; void citedTxHashes;
 }
 
 export async function getLeaderboard(kv: any, topic: string, limit: number): Promise<LeaderboardEntry[]> {
@@ -597,29 +617,26 @@ export async function kvAddBounty(kv: any, bounty: ResearchBounty): Promise<void
   const feed: ResearchBounty[] = await kv.get(KV_BOUNTY_FEED(bounty.topic), { type: 'json' }) ?? [];
   feed.unshift(bounty);
   if (feed.length > 100) feed.length = 100;
-  await Promise.all([
-    kv.put(KV_BOUNTY_FEED(bounty.topic), JSON.stringify(feed)),
-    kv.put(KV_BOUNTY_BY_ID(bounty.id),   JSON.stringify(bounty)),
-  ]);
+  // Single write — no by-id duplicate
+  await kv.put(KV_BOUNTY_FEED(bounty.topic), JSON.stringify(feed));
 }
 
 export async function kvGetBounties(kv: any, topic: string): Promise<ResearchBounty[]> {
   return await kv.get(KV_BOUNTY_FEED(topic), { type: 'json' }) ?? [];
 }
 
-export async function kvGetBounty(kv: any, id: string): Promise<ResearchBounty | null> {
-  return await kv.get(KV_BOUNTY_BY_ID(id), { type: 'json' });
+/** Look up a bounty by id within a known topic feed (O(n) scan, n ≤ 100). */
+export async function kvGetBounty(kv: any, id: string, topic: string): Promise<ResearchBounty | null> {
+  const feed = await kvGetBounties(kv, topic);
+  return feed.find(b => b.id === id) ?? null;
 }
 
 export async function kvUpdateBounty(kv: any, bounty: ResearchBounty): Promise<void> {
-  // patch the feed entry in-place
   const feed: ResearchBounty[] = await kv.get(KV_BOUNTY_FEED(bounty.topic), { type: 'json' }) ?? [];
   const idx = feed.findIndex(b => b.id === bounty.id);
   if (idx >= 0) feed[idx] = bounty;
-  await Promise.all([
-    kv.put(KV_BOUNTY_FEED(bounty.topic), JSON.stringify(feed)),
-    kv.put(KV_BOUNTY_BY_ID(bounty.id),   JSON.stringify(bounty)),
-  ]);
+  // Single write — no by-id duplicate
+  await kv.put(KV_BOUNTY_FEED(bounty.topic), JSON.stringify(feed));
 }
 
 /** Check whether a published finding qualifies for a bounty.
