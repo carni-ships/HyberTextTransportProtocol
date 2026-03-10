@@ -131,7 +131,7 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 128     # best with time-based cosine
-    lr          = 1.75e-2  # test: between 1.5e-2 and 2e-2
+    lr          = 2e-2    # confirmed best for batch=128
     warmup_frac = 0.05    # 5% time-based warmup
     min_lr_frac = 0.0     # confirmed best: min_lr=0
 
@@ -144,7 +144,7 @@ def train():
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
-        betas=(0.85, 0.95),  # confirmed best
+        betas=(0.9, 0.95),   # test: higher beta1 for batch=128
         weight_decay=0.2,
     )
 
