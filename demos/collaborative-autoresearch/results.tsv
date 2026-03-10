@@ -65,3 +65,4 @@ e0a0bdb	2.289	5.5	discard	warmup_frac=0.08 + epoch-style: mean 2.289 — 0.05 st
 bqf6dn0	2.302	5.5	discard	beta1=0.78: mean 2.302 — 0.80 is true sweet spot
 bb42dvk	2.299	5.5	discard	n_embd=112: mean 2.299 — 128 still optimal (capacity > steps tradeoff)
 bip2403	2.292	5.5	discard	clip_grad=2.0: mean 2.292 — 1.0 still best
+b3th1d7	2.358	5.5	discard	n_head=2 (64-dim heads): mean ~2.358 (3 runs) — n_head=4 definitively better
