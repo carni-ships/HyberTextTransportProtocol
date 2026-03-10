@@ -109,3 +109,4 @@ note	2.342	5.5	discard	SiLU-only 6x MLP (no up branch): 2.342 single run — gat
 92bc279	2.295	5.5	discard	gate/up init std=0.10: mean 2.295 (16 runs) — std=0.20 stays best for all
 9b22943	2.277	5.5	discard	value residual in attn (v += x): mean 2.277 (16 runs, throttled) — no clear improvement
 d1e9f28	2.299	5.5	discard	seq_len=48: mean 2.299 (8 runs, 586 steps) — more steps but context loss worse; seq=64 best
+note	2.407	5.5	discard	tied QK (shared Q=K weights): 2.407 single run — symmetric attention is bad; not committed
