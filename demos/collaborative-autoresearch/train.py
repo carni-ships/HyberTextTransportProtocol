@@ -130,7 +130,7 @@ def train():
     else:
         device = "cpu"
     config      = GPTConfig()
-    batch_size  = 128     # per 0xa6dad07e: batch=128 + time-based cosine → 2.290 avg
+    batch_size  = 64      # MPS sweet spot
     lr          = 1.5e-2  # confirmed best lr
     warmup_frac = 0.05    # 5% time-based warmup
     min_lr_frac = 0.0     # confirmed best: min_lr=0
