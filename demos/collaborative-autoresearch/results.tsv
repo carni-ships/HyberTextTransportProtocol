@@ -54,3 +54,4 @@ dcfe6c7	2.307	5.5	discard	warmup_frac=0.10: mean 2.307
 7ea575d	2.255	5.5	BEST	batch=128+lr=2e-2+betas=(0.80,0.95)+time-cosine: mean 2.290 over 24 runs under throttle — ROBUST BEST
 063853b	2.292	5.5	discard	std=0.24: mean 2.292 — similar to 0.20 but 0.20 is baseline
 f548884	2.314	5.5	discard	std=0.28: mean 2.314 — 0.20 stays best
+e05ab62	2.307	5.5	discard	SwiGLU 8/3 hidden ratio: mean 2.307 — 4x stays best
