@@ -113,3 +113,4 @@ note	2.407	5.5	discard	tied QK (shared Q=K weights): 2.407 single run — symmet
 398f9cc	2.295	5.5	discard	batch=192+lr=2.2e-2 w/on-device loader: mean 2.295 (8 runs, 379 steps) — batch=128 still best
 0ea50d7	2.300	5.5	discard	sinusoidal wpe init: mean 2.300 (8 runs) — random normal std=0.20 still best
 92f49dd	2.390	5.5	discard	LayerScale γ=0.1: mean ~2.39 (8 runs, catastrophic) — init=0.1 too small; diverges
+note	3.291	5.5	discard	no wpe: 3.291 single run — position embeddings critical; not committed
