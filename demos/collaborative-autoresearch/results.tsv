@@ -74,4 +74,4 @@ b48thl8	2.316	5.5	discard	warmup_frac=0.03: mean 2.316 (6 runs) — 0.05 confirm
 bb1x20j	2.308	5.5	discard	lr=2.2e-2 + epoch-style: mean 2.308 (6 runs) — 2e-2 optimal
 b09is0e	2.287	5.5	discard	batch=192 + epoch-style: mean 2.287 (8 runs) — 128 still best (high variance)
 bvqy264	2.243	5.5	keep	final ln_f (LayerNorm) + epoch-style: mean 2.265 over 16 runs — prev BEST
-bn9qdgm	2.237	5.5	BEST	final RMSNorm + epoch-style: mean 2.261 over 8 runs — NEW BEST (RMSNorm faster+better than LN)
+bn9qdgm	2.237	5.5	BEST	final RMSNorm + epoch-style: mean 2.272 over 16 runs — within noise of ln_f (2.265); 8-run mean 2.261 cool vs 2.283 throttled
