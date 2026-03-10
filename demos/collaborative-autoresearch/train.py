@@ -131,7 +131,7 @@ def train():
         device = "cpu"
     config      = GPTConfig()
     batch_size  = 64      # MPS sweet spot per 0x703cc308: batch=64+SDPA
-    lr          = 1.5e-2  # confirmed best lr
+    lr          = 2e-2    # test lr=2e-2 with new best config (0.85,0.95)+min_lr=0
 
     # Data
     train_data, val_data = prepare_data()
@@ -142,7 +142,7 @@ def train():
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
-        betas=(0.75, 0.97),  # test: beta2=0.97 with original beta1=0.75
+        betas=(0.85, 0.95),  # current best
         weight_decay=0.2,
     )
 
