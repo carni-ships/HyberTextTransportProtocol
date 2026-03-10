@@ -75,7 +75,7 @@ bb1x20j	2.308	5.5	discard	lr=2.2e-2 + epoch-style: mean 2.308 (6 runs) — 2e-2 
 b09is0e	2.287	5.5	discard	batch=192 + epoch-style: mean 2.287 (8 runs) — 128 still best (high variance)
 bvqy264	2.243	5.5	keep	final ln_f (LayerNorm) + epoch-style: mean 2.265 over 16 runs — prev BEST
 bn9qdgm	2.237	5.5	keep	final RMSNorm + epoch-style: mean 2.272 over 16 runs — was best before tensor precompute
-bvdgdh0	2.198	5.5	BEST	pre-built tensor epoch loader: mean 2.247 over 8 runs — MASSIVE NEW BEST (min 2.198!)
+bvdgdh0	2.198	5.5	BEST	pre-built tensor epoch loader: mean 2.263 over 16 runs (2.247 cool, 2.280 throttled) — ROBUST NEW BEST; 851-956 steps cool
 b63wzw4	2.288	5.5	discard	pre-norm RMSNorm in blocks + final RMSNorm: mean 2.288 — extra overhead hurts, final-only best
 bczipom	2.296	5.5	discard	beta1=0.82 + RMSNorm: mean 2.296 — 0.80 stays optimal
 bqxi3ab	2.284	5.5	discard	init_std=0.22 + RMSNorm: mean 2.284 — 0.20 stays best
