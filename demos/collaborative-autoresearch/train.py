@@ -25,7 +25,7 @@ from prepare import (
 @dataclass
 class GPTConfig:
     vocab_size:   int = VOCAB_SIZE
-    sequence_len: int = 80        # exp: slightly longer context with epoch-style loader
+    sequence_len: int = 64        # confirmed best: seq=64
     n_layer:      int = 1
     n_head:       int = 4
     n_embd:       int = 128
