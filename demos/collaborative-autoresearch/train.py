@@ -105,7 +105,7 @@ class GPT(nn.Module):
             if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name):
                 nn.init.normal_(p, mean=0.0, std=0.20)  # sweet spot: avg 2.305 over 16 runs
             elif 'proj' in name or 'down' in name:
-                nn.init.normal_(p, mean=0.0, std=0.10)  # test: 1/2 of main std (was 1/4)
+                nn.init.normal_(p, mean=0.0, std=0.02)  # test: smaller proj/down std
 
     def forward(self, idx):
         B, T = idx.size()
