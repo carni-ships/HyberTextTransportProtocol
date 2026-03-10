@@ -46,3 +46,6 @@ dc1fb19	2.308	5.5	discard	betas=(0.75,0.95)+batch=128: mean 2.308 — 0.80 bette
 b1a543e	2.311	5.5	discard	betas=(0.82,0.95)+batch=128: mean 2.311 — 0.80 is sweet spot
 c99ca33	2.317	5.5	discard	beta2=0.97: mean 2.317 — 0.95 better
 c0df303	2.294	5.5	discard	beta2=0.99: mean 2.294 (16 runs) — 0.95 still slightly better
+8db855e	2.297	5.5	discard	wd=0.1+batch=128: mean 2.297 — 0.2 better
+24e61dc	2.293	5.5	discard	wd=0.3+batch=128: mean 2.293 — within noise of 0.2
+a541c65	2.382	5.5	discard	wd=0.5: mean 2.382 — too high
