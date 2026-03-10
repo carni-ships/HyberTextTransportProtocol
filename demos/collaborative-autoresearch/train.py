@@ -103,8 +103,10 @@ class GPT(nn.Module):
 
     def _init_weights(self):
         for name, p in self.named_parameters():
-            if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name):
+            if 'wte' in name or ('weight' in name and 'proj' not in name and 'down' not in name and 'gate' not in name and 'up' not in name):
                 nn.init.normal_(p, mean=0.0, std=0.20)  # sweet spot confirmed
+            elif 'gate' in name or 'up' in name:
+                nn.init.normal_(p, mean=0.0, std=0.10)  # exp: separate MLP gate/up init
             elif 'proj' in name or 'down' in name:
                 nn.init.normal_(p, mean=0.0, std=0.05)  # 1/4 of main std
 
