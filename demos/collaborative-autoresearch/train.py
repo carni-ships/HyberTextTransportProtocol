@@ -28,7 +28,7 @@ class GPTConfig:
     sequence_len: int = 64        # per 0x703cc308 finding: batch=64+SDPA+seq=64
     n_layer:      int = 1
     n_head:       int = 4
-    n_embd:       int = 96   # test: smaller model for more steps under throttle
+    n_embd:       int = 128
     dropout:      float = 0.0
 
 # ─── Model ────────────────────────────────────────────────────────────────────
