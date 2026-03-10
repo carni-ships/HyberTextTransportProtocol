@@ -58,7 +58,7 @@ class CausalSelfAttention(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    """SwiGLU MLP — known to beat GELU for this task"""
+    """GeGLU MLP — test: GELU gate vs SiLU (SwiGLU). Other agents found lr=2.5e-2+GeGLU=2.299."""
     def __init__(self, config: GPTConfig):
         super().__init__()
         hidden = 4 * config.n_embd
@@ -67,7 +67,7 @@ class SwiGLU(nn.Module):
         self.down = nn.Linear(hidden, config.n_embd, bias=False)
 
     def forward(self, x):
-        return self.down(F.silu(self.gate(x)) * self.up(x))
+        return self.down(F.gelu(self.gate(x)) * self.up(x))
 
 
 class Block(nn.Module):
