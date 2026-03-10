@@ -61,3 +61,4 @@ a2fb7e8	2.309	5.8	discard	n_embd=144: mean 2.309 over 8 runs — 128 still best 
 e9a5595	2.292	5.5	discard	epoch-style stride=32 (overlapping): mean 2.292 — worse than stride=64 (2.272), non-overlapping optimal
 e0a0bdb	2.289	5.5	discard	warmup_frac=0.08 + epoch-style: mean 2.289 — 0.05 still best
 2a0d451	2.360	5.5	discard	label_smoothing=0.05: mean ~2.360 (2 runs 2.340+2.381) — model underfits, smoothing hurts
+35ddf86	2.294	5.5	discard	selective wd (decay=2D,skip=emb): mean 2.294 — uniform wd=0.2 for all params still better
