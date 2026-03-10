@@ -97,8 +97,6 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # Weight tying
         self.transformer['wte'].weight = self.lm_head.weight
-        # exp: learned wpe scale (allows model to control positional contribution)
-        self.wpe_scale = nn.Parameter(torch.ones(1))
 
         # GPT-2 style init: big gain per prior agents
         self._init_weights()
@@ -113,7 +111,7 @@ class GPT(nn.Module):
     def forward(self, idx):
         B, T = idx.size()
         pos  = torch.arange(T, device=idx.device).unsqueeze(0)
-        x    = self.transformer['wte'](idx) + self.wpe_scale * self.transformer['wpe'](pos)
+        x    = self.transformer['wte'](idx) + self.transformer['wpe'](pos)
         x    = self.transformer['drop'](x)
         for block in self.transformer['h']:
             x = block(x)
