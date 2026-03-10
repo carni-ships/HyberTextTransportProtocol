@@ -133,3 +133,20 @@ ef5b226	2.286	5.5	discard	beta1=0.85+proj=0.09: mean 2.286 — 0.80 still optima
 45c0d65	2.274	5.5	discard	clip=0.7: mean 2.274 (8 runs) — 0.8 is sweet spot
 192cfd6	2.298	5.5	discard	clip=0.9: mean 2.298 (8 runs) — 0.8 confirmed sweet spot
 5eeacb1	2.282	5.5	discard	main_std=0.22+clip=0.8+proj=0.09: mean 2.282 (16 runs, 2.479 outlier) — high variance; 0.20 stays
+ffa28a1	2.299	5.5	discard	warmup_frac=0.04: mean 2.299 (8 runs) — 0.05 still best
+ffa28a1	2.283	5.5	discard	warmup_frac=0.06: mean 2.283 (first 8 lucky), 2.310 (next 8), combined 2.295 — 0.05 stays
+ffa28a1	2.323	5.5	discard	weight_decay=0.3: mean 2.323 (8 runs) — 0.2 confirmed best
+ffa28a1	2.306	5.5	discard	weight_decay=0.25: mean 2.306 (8 runs) — 0.2 confirmed best
+ffa28a1	2.325	5.5	discard	lr=2.2e-2: mean 2.325 (8 runs) — 2e-2 confirmed optimal
+ffa28a1	2.315	5.5	discard	lr=1.9e-2: mean 2.315 (8 runs) — 2e-2 confirmed optimal
+ffa28a1	2.314	5.5	discard	SwiGLU 3x hidden: mean 2.314 (8 runs) — 4x hidden confirmed best
+ffa28a1	2.310	5.5	discard	n_embd=144: mean 2.310 (8 runs) — 128 optimal; larger model is slower
+ffa28a1	2.307	5.5	discard	batch_size=256: mean 2.307 (8 runs) — 128 confirmed best
+ffa28a1	2.304	5.5	discard	n_head=8 (head_dim=16): mean 2.304 (8 runs) — 4 heads best
+ffa28a1	2.315	5.5	discard	n_head=2 (head_dim=64): mean 2.315 (8 runs) — 4 heads best
+ffa28a1	2.326	5.5	discard	label_smoothing=0.05: mean 2.326 (8 runs) — no smoothing best
+ffa28a1	2.328	5.5	discard	dropout=0.05: mean 2.328 (8 runs) — 0.0 best
+ffa28a1	2.282	5.5	discard	linear LR decay: mean 2.282 (8 runs) — cosine better
+ffa28a1	2.281	5.5	discard	beta1=0.75: mean 2.281 (8 runs) — 0.80 baseline still best
+ffa28a1	2.330	5.5	discard	RoPE (no wpe): mean 2.330 (8 runs) — absolute wpe better with current config
+ffa28a1	2.265	5.5	BEST	beta1=0.82: mean 2.265 over 24 seeds vs 0.80 baseline 2.278 — new best!
