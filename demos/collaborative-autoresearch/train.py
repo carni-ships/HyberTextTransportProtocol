@@ -144,13 +144,14 @@ def train():
     _n   = len(_buf)
     _windows = torch.arange(0, _n - config.sequence_len - 1, config.sequence_len)
     # Pre-build all (x, y) pairs as a big tensor for zero-overhead batching
-    _all_x = torch.stack([_buf[s:s+config.sequence_len]   for s in _windows])
-    _all_y = torch.stack([_buf[s+1:s+config.sequence_len+1] for s in _windows])
+    # Move to device upfront to eliminate per-batch CPU→MPS transfer
+    _all_x = torch.stack([_buf[s:s+config.sequence_len]   for s in _windows]).to(device)
+    _all_y = torch.stack([_buf[s+1:s+config.sequence_len+1] for s in _windows]).to(device)
 
     def _epoch_loader(all_x, all_y, bs):
         n = len(all_x)
         while True:
-            perm = torch.randperm(n)
+            perm = torch.randperm(n, device=all_x.device)
             for start in range(0, n - bs + 1, bs):
                 idx = perm[start:start+bs]
                 yield all_x[idx], all_y[idx]
@@ -179,7 +180,7 @@ def train():
         if train_start is None:
             train_start = time.perf_counter()
 
-        x, y = x.to(device), y.to(device)
+        # data already on device (moved upfront)
         logits = model(x)
         loss   = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
 
