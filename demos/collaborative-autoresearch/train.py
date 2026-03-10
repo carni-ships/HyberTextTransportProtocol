@@ -78,8 +78,8 @@ class Block(nn.Module):
         self.mlp  = SwiGLU(config)
 
     def forward(self, x):
-        # Parallel attn+mlp (PaLM-style): x + attn(x) + mlp(x)
-        x = x + self.attn(x) + self.mlp(x)
+        x = x + self.attn(x)
+        x = x + self.mlp(x)
         return x
 
 
