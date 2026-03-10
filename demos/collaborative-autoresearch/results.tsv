@@ -100,3 +100,5 @@ c3af8d3	2.294	5.5	discard	beta2=0.97 + pre-built loader: mean 2.294 (8 runs) —
 5563883	2.298	5.5	discard	warmup_frac=0.04: mean 2.298 (8 runs) — 0.05 confirmed best
 0d46bdb	2.583	5.5	discard	2-cycle cosine LR: mean ~2.58 (8 runs) — catastrophic; ends on high LR in cycle 2
 901a895	2.363	5.5	discard	n_head=1 (head_dim=128): mean 2.363 (8 runs) — n_head=4 definitively better
+5bf9290	2.279	5.5	note	on-device pre-loaded tensors: mean 2.279 (16 runs, throttled) — inconclusive vs 2.263 baseline (also throttled)
+92086bc	2.292	5.5	discard	grad_clip=0.5: mean 2.292 (8 runs) — 1.0 stays best
