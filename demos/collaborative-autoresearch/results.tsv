@@ -1,0 +1,14 @@
+commit	val_bpb	memory_mb	status	description
+7d32f27	2.403	9.4	keep	MPS device (Apple Silicon GPU): 2396-3134 steps vs ~1300 CPU, avg ~2.44 bpb over 3 runs
+64c3234	2.292	5.5	keep	MPS+seq=160+lr=1.5e-2+betas=(0.75,0.95)+no-LN+SwiGLU-4x: avg 2.292 over 5 good runs
+64c3234	2.765	5.5	discard	Same config under thermal throttle: avg 2.765 over 10 runs (system under load)
+9984559	2.376	5.6	keep	SDPA+batch=64+seq=64+lr=1.5e-2+MPS+no-LN+SwiGLU-4x: avg 2.415 over 13 runs, min 2.376
+0143ac1	2.324	5.6	keep	SDPA+batch=64+seq=64+lr=1.5e-2+init_std=0.08: avg 2.388 over 16 runs, min 2.324
+36370d2	2.273	5.6	keep	SDPA+batch=64+seq=64+lr=1.5e-2+init_std=0.20: avg 2.305 over 16 runs, min 2.273
+4c833bf	2.318	5.6	discard	warmup=140: mean 2.318 (8 runs) vs 2.305 baseline — worse
+4a73088	2.443	5.6	discard	lr=2.5e-2 with init_std=0.20: mean 2.443 (8 runs) — much worse
+ff7a2e0	2.377	5.6	discard	GeGLU activation: mean 2.377 (8 runs) vs 2.305 SwiGLU baseline
+4609406	2.516	5.6	discard	0xd8b7e635 config n_embd=160+lr=3e-2+wd=0.1+clip=0.5: mean 2.516 (8 runs)
+cbe13ff	2.377	5.6	discard	n_embd=160 fewer steps (mean 2.377 vs 2.305 baseline)
+8e3f5ba	2.316	5.6	discard	total=1100 cosine: mean 2.316 vs 2.305 (total=1400 better)
+36f1c8a	2.387	5.6	discard	emb scale sqrt(n_embd): mean 2.387 (8 runs) — init_std=0.20 renders it harmful
