@@ -200,3 +200,5 @@ bf35dfb	2.281	5.5	discard	epoch stride=48 (partial overlap): mean 2.281 — stri
 bf35dfb	2.282	5.5	discard	residual scale=0.9: mean 2.281 (4 runs) — standard residual better
 e757059	2.318	5.5	discard	ReGLU (F.relu) vs SwiGLU (F.silu): mean 2.318 (8 runs) — clearly worse by +0.063 BPB; SwiGLU confirmed best
 5fbf6a1	2.287	5.5	discard	GeGLU (F.gelu) vs SwiGLU: GeGLU 2.285 vs SwiGLU 2.263 paired (4 runs each, matched thermal) — SwiGLU confirmed best by +0.022
+5fbf6a1	2.319	5.5	discard	MishGLU (F.mish) vs SwiGLU: mean 2.319 (8 runs) — clearly worse, Mish also slower on MPS; SwiGLU confirmed best
+5fbf6a1	2.300	5.5	discard	Sq-ReGLU (relu^2 gate): mean 2.300 (8 runs) — worse than SwiGLU 2.255; SwiGLU confirmed
