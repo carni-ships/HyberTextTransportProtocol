@@ -205,3 +205,6 @@ e757059	2.318	5.5	discard	ReGLU (F.relu) vs SwiGLU (F.silu): mean 2.318 (8 runs)
 9e47d71	4.531	5.5	discard	RAdam: catastrophic 4.53 bpb — RAdam lacks decoupled WD; wd=0.2 L2 penalty destroys training
 9e47d71	2.500	5.5	discard	sqrt LR decay (1/sqrt(1+99t)→0.1 at end): mean 2.500 (8 runs) — LR too high at end; cosine confirmed
 9e47d71	2.285	5.5	discard	wte_std=0.15 (separate from wpe=0.20): mean 2.285 (8 runs) — uniform std=0.20 for all weights best
+9e47d71	2.259	5.5	discard	cosine warmup (vs linear): mean 2.257 vs baseline 2.259 paired (8 each) — identical; linear stays
+9e47d71	2.259	5.5	discard	beta1=0.84 (vs 0.82): 16-run mean 2.269 vs 2.274 but thermal-confounded; gap closes in 2nd batch — 0.82 stays
+5fa451e	2.250	5.5	BEST	MLP 6x hidden (vs 4x): mean 2.250 over 16 runs vs 4x mean 2.268 (16 paired) — 0.018 improvement; 6x wins despite fewer steps
