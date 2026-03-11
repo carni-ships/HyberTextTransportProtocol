@@ -180,3 +180,9 @@ f1454cd	2.279	5.5	discard	zero-init c_proj (residual stability): mean 2.264 (12 
 f1454cd	2.289	5.5	discard	ln_f.weight=1.0 (skip custom init for norm): mean 2.272 (16 runs) — norm std=0.20 actually helps
 f1454cd	2.316	5.5	discard	seq_len=128: mean 2.505 (8 runs) — too few steps; seq=64 confirmed best
 f1454cd	2.282	5.5	discard	linear LR decay with new config: mean 2.282 (8 runs) — cosine confirmed best
+6ea6072	2.259	5.5	discard	clip=0.5: mean 2.259 (16 runs) — 0.8 confirmed (0.5 within noise but higher)
+6ea6072	2.257	5.5	discard	AdamW eps=1e-6: mean 2.257 (16 runs) — thermal artifact; default eps best
+6ea6072	2.276	5.5	discard	main_std=0.25: mean 2.276 (8 runs) — 0.20 confirmed
+6ea6072	2.276	5.5	discard	attn scale=1.2x: mean 2.260 (20 runs) — thermal artifact; default scale best
+6ea6072	2.275	5.5	discard	attn scale=0.8x: mean 2.275 (8 runs) — default scale confirmed
+6ea6072	2.268	5.5	discard	RMSNorm eps=1e-6: mean 2.268 (24 runs) — thermal artifact; default eps best
