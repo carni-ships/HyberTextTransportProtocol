@@ -150,3 +150,13 @@ ffa28a1	2.282	5.5	discard	linear LR decay: mean 2.282 (8 runs) — cosine better
 ffa28a1	2.281	5.5	discard	beta1=0.75: mean 2.281 (8 runs) — 0.80 baseline still best
 ffa28a1	2.330	5.5	discard	RoPE (no wpe): mean 2.330 (8 runs) — absolute wpe better with current config
 ffa28a1	2.265	5.5	BEST	beta1=0.82: mean 2.265 over 24 seeds vs 0.80 baseline 2.278 — new best!
+2fb31f7	2.266	5.5	discard	beta1=0.83: mean 2.266 (8 runs) — same as 0.82, 0.82 stays
+2fb31f7	2.269	5.5	discard	beta1=0.81: mean 2.269 (8 runs) — same as 0.82, 0.82 stays
+2fb31f7	2.267	5.5	discard	beta2=0.97 + beta1=0.82: mean 2.267 (8 runs) — 0.95 stays best
+2fb31f7	2.291	5.5	discard	beta2=0.93 + beta1=0.82: mean 2.291 (8 runs) — 0.95 confirmed
+2fb31f7	2.272	5.5	discard	main_std=0.18 + beta1=0.82: mean 2.272 (16 runs) — 0.20 stays
+2fb31f7	2.264	5.5	discard	clip=0.7 + beta1=0.82: mean 2.264 (16 runs) — same as clip=0.8, 0.8 stays
+2fb31f7	2.274	5.5	discard	clip=0.6 + beta1=0.82: mean 2.274 (8 runs) — 0.8 still better
+2fb31f7	2.281	5.5	discard	lm_head bias=True + beta1=0.82: mean 2.281 (8 runs) — no-bias best
+2fb31f7	2.271	5.5	discard	proj_std=0.10 + beta1=0.82: mean 2.271 (8 runs) — 0.09 best
+2fb31f7	2.255	5.5	BEST	lr=2.5e-2 + beta1=0.82: mean 2.255 (24 seeds) vs 2.265 baseline — new best!
