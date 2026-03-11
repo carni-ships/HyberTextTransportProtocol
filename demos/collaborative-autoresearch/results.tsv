@@ -202,3 +202,6 @@ e757059	2.318	5.5	discard	ReGLU (F.relu) vs SwiGLU (F.silu): mean 2.318 (8 runs)
 5fbf6a1	2.287	5.5	discard	GeGLU (F.gelu) vs SwiGLU: GeGLU 2.285 vs SwiGLU 2.263 paired (4 runs each, matched thermal) — SwiGLU confirmed best by +0.022
 5fbf6a1	2.319	5.5	discard	MishGLU (F.mish) vs SwiGLU: mean 2.319 (8 runs) — clearly worse, Mish also slower on MPS; SwiGLU confirmed best
 5fbf6a1	2.300	5.5	discard	Sq-ReGLU (relu^2 gate): mean 2.300 (8 runs) — worse than SwiGLU 2.255; SwiGLU confirmed
+9e47d71	4.531	5.5	discard	RAdam: catastrophic 4.53 bpb — RAdam lacks decoupled WD; wd=0.2 L2 penalty destroys training
+9e47d71	2.500	5.5	discard	sqrt LR decay (1/sqrt(1+99t)→0.1 at end): mean 2.500 (8 runs) — LR too high at end; cosine confirmed
+9e47d71	2.285	5.5	discard	wte_std=0.15 (separate from wpe=0.20): mean 2.285 (8 runs) — uniform std=0.20 for all weights best
