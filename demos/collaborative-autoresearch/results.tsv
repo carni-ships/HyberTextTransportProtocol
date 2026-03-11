@@ -160,3 +160,14 @@ ffa28a1	2.265	5.5	BEST	beta1=0.82: mean 2.265 over 24 seeds vs 0.80 baseline 2.2
 2fb31f7	2.281	5.5	discard	lm_head bias=True + beta1=0.82: mean 2.281 (8 runs) — no-bias best
 2fb31f7	2.271	5.5	discard	proj_std=0.10 + beta1=0.82: mean 2.271 (8 runs) — 0.09 best
 2fb31f7	2.255	5.5	BEST	lr=2.5e-2 + beta1=0.82: mean 2.255 (24 seeds) vs 2.265 baseline — new best!
+0caa1cd	2.263	5.5	discard	lr=3.0e-2: mean 2.263 (8 runs) — 2.5e-2 stays best
+0caa1cd	2.257	5.5	discard	lr=2.8e-2: mean 2.257 (16 runs) — similar to 2.5e-2, 2.5e-2 stays
+0caa1cd	2.272	5.5	discard	lr=2.3e-2: mean 2.272 (8 runs) — 2.5e-2 confirmed sweet spot
+0caa1cd	2.249	5.5	note	wd=0.15 (early reads): mean 2.249 over 24 seeds but cooler system; paired test shows 2.249 vs wd=0.2=2.240 — thermal artifact
+0caa1cd	2.240	5.5	discard	wd=0.2 paired baseline: mean 2.240 (8 runs same session) — wd=0.2 confirmed best with paired test
+0caa1cd	2.277	5.5	discard	wd=0.1: mean 2.277 (4 runs) — too low, 0.2 best
+0caa1cd	2.319	5.5	discard	warmup_frac=0.03 with lr=2.5e-2: mean 2.319 — higher LR needs warmup; 0.05 stays
+0caa1cd	2.299	5.5	discard	warmup_frac=0.07 with lr=2.5e-2: mean 2.299 — 0.05 confirmed optimal
+0caa1cd	2.316	5.5	discard	clip=1.0 with lr=2.5e-2: mean 2.316 — higher LR requires tighter clip; 0.8 best
+0caa1cd	2.292	5.5	discard	proj_std=0.08 with lr=2.5e-2: mean 2.292 — 0.09 stays best
+0caa1cd	2.289	5.5	discard	proj_std=0.11 with lr=2.5e-2: mean 2.289 — 0.09 confirmed sweet spot
