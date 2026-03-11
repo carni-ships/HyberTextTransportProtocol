@@ -186,3 +186,11 @@ f1454cd	2.282	5.5	discard	linear LR decay with new config: mean 2.282 (8 runs) �
 6ea6072	2.276	5.5	discard	attn scale=1.2x: mean 2.260 (20 runs) — thermal artifact; default scale best
 6ea6072	2.275	5.5	discard	attn scale=0.8x: mean 2.275 (8 runs) — default scale confirmed
 6ea6072	2.268	5.5	discard	RMSNorm eps=1e-6: mean 2.268 (24 runs) — thermal artifact; default eps best
+c048667	2.277	5.5	discard	down_std=0.12 vs c_proj=0.09: mean 2.266 (8 runs) — within noise; uniform proj=0.09 best
+c048667	2.266	5.5	discard	down_std=0.07 vs c_proj=0.09: mean 2.266 (16 runs) — within noise; uniform proj=0.09 best
+c048667	2.268	5.5	discard	2x coverage (shifted windows): mean 2.268 (8 runs) — 1x epoch best
+c048667	2.303	5.5	discard	no weight tying: mean 2.303 (8 runs) — weight tying confirmed best
+c048667	2.331	5.5	discard	batch_size=160: mean 2.331 (8 runs) — 128 confirmed best
+c048667	2.275	5.5	note	n_layer=2 n_embd=80: unstable with lr=2.5e-2 (multiple NaN/3.6+ runs); 1-layer definitively best
+c048667	2.277	5.5	note	5x SwiGLU hidden: mean 2.277 (8 runs) — 4x stays best
+c048667	2.275	5.5	note	final 8-run measurement: mean 2.275 (throttled, 489-553 steps)
