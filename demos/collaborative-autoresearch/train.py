@@ -34,7 +34,7 @@ class GPTConfig:
 # ─── Model ────────────────────────────────────────────────────────────────────
 
 class CausalSelfAttention(nn.Module):
-    """SDPA (scaled_dot_product_attention) — best config: batch=128+lr=2e-2+betas=(0.82,0.95)."""
+    """SDPA (scaled_dot_product_attention) — best config: batch=128+lr=2.5e-2+betas=(0.82,0.95)."""
     def __init__(self, config: GPTConfig):
         super().__init__()
         assert config.n_embd % config.n_head == 0
